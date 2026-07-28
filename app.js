@@ -1620,3 +1620,40 @@ if('serviceWorker' in navigator && (location.protocol === 'https:' || location.h
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) checkDayRollover(); });
   window.addEventListener('focus', checkDayRollover);
 })();
+
+function sendFeedback() {
+    const profile = state.profile || {};
+
+    const name = profile.name || "";
+    const email = profile.email || "";
+    const studentClass = profile.class || "";
+    const exam = profile.exam || "";
+
+    const subject = encodeURIComponent("JEE Ascend Feedback");
+
+    const body = encodeURIComponent(
+`Hello Anshu,
+
+Name: ${name}
+Email: ${email}
+Class: ${studentClass}
+Preparing For: ${exam}
+
+------------------------------------
+
+Feedback:
+
+
+
+
+------------------------------------
+
+Device:
+Browser:
+
+`
+    );
+
+    window.location.href =
+        `mailto:anshu9935@outlook.com?subject=${subject}&body=${body}`;
+}
