@@ -1501,6 +1501,46 @@ function renderSettings(){
       </div>
       <button class="danger-btn" onclick="resetAllData()">Reset all data</button>
     </div>
+    <div class="settings-block">
+
+    <div class="section-title">
+        💬 Feedback
+    </div>
+
+    <div class="feedback-card">
+
+        <div class="feedback-icon">
+            💬
+        </div>
+
+        <div class="feedback-content">
+
+            <div class="feedback-title">
+                Help Improve JEE Ascend
+            </div>
+
+            <div class="feedback-text">
+                Found a bug, have an idea, or want a new feature?
+                I'd love to hear your thoughts.
+            </div>
+
+            <div class="feedback-mail">
+                anshu9935@outlook.com
+            </div>
+
+        </div>
+
+        <button
+            class="feedback-btn"
+            onclick="sendFeedback()">
+
+            Send Feedback
+
+        </button>
+
+    </div>
+
+</div>
   </div>`;
   el.innerHTML = html;
 }
