@@ -1014,19 +1014,52 @@ function syncFocusGlow(){
   glow.classList.toggle('on-break', focusTimer.mode === 'break');
 }
 function startFocusTimer(){
-  if(focusTimer.running) return;
-  focusTimer.running = true;
-  focusTimer.intervalId = setInterval(()=>{
-    focusTimer.remainingSec--;
-    if(focusTimer.remainingSec <= 0) completeFocusSession();
-    else updateFocusDisplay();
-  }, 1000);
-  updateFocusButtons();
-  syncFocusGlow();
+
+    if(focusTimer.running) return;
+
+    focusTimer.running = true;
+
+    // Save finish time
+    focusTimer.endTime = Date.now() + focusTimer.remainingSec * 1000;
+
+    localStorage.setItem(
+        "focusEndTime",
+        focusTimer.endTime
+    );
+
+    localStorage.setItem(
+        "focusRunning",
+        "true"
+    );
+
+    focusTimer.intervalId = setInterval(()=>{
+
+        const remaining = Math.ceil(
+            (focusTimer.endTime - Date.now()) / 1000
+        );
+
+        focusTimer.remainingSec = Math.max(0, remaining);
+
+        if(focusTimer.remainingSec <= 0){
+            completeFocusSession();
+        }else{
+            updateFocusDisplay();
+        }
+
+    },1000);
+
+    updateFocusButtons();
+
+    syncFocusGlow();
+
 }
 function pauseFocusTimer(){
   focusTimer.running = false;
   clearInterval(focusTimer.intervalId);
+
+  localStorage.removeItem("focusEndTime");
+  localStorage.removeItem("focusRunning");
+  
   updateFocusButtons();
   syncFocusGlow();
 }
@@ -1501,6 +1534,7 @@ function renderSettings(){
       </div>
       <button class="danger-btn" onclick="resetAllData()">Reset all data</button>
     </div>
+    
     <div class="settings-block">
 
     <div class="section-title">
@@ -1697,3 +1731,51 @@ Browser:
     window.location.href =
         `mailto:anshu9935@outlook.com?subject=${subject}&body=${body}`;
 }
+
+window.addEventListener("load",()=>{
+
+    const running = localStorage.getItem("focusRunning");
+
+    const endTime = Number(
+        localStorage.getItem("focusEndTime")
+    );
+
+    if(running==="true" && endTime){
+
+        focusTimer.remainingSec = Math.max(
+            0,
+            Math.ceil((endTime-Date.now())/1000)
+        );
+
+        focusTimer.endTime = endTime;
+
+        if(focusTimer.remainingSec>0){
+
+            startFocusTimer();
+
+            updateFocusDisplay();
+
+        }
+
+    }
+
+});
+
+document.addEventListener("visibilitychange",()=>{
+
+    if(document.hidden) return;
+
+    if(focusTimer.running){
+
+        focusTimer.remainingSec = Math.max(
+            0,
+            Math.ceil(
+                (focusTimer.endTime-Date.now())/1000
+            )
+        );
+
+        updateFocusDisplay();
+
+    }
+
+});
