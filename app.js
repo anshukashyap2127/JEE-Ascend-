@@ -366,6 +366,55 @@ async function load(){
 }
 async function save(){
   await storageSet('jee-ascend-state', JSON.stringify(state));
+  scheduleCloudSync();
+}
+
+// ---------- CLOUD SYNC (Firebase) ----------
+// >>> PASTE YOUR FIREBASE PROJECT CONFIG HERE. Leave apiKey blank ('') to disable cloud sync entirely. <<<
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCCdPhja7dhsV70YeWvpMUbziP6pfM6-iQ",
+  authDomain: "jee-ascend.firebaseapp.com",
+  projectId: "jee-ascend",
+  storageBucket: "jee-ascend.firebasestorage.app",
+  messagingSenderId: "404497112359",
+  appId: "1:404497112359:web:4a807aaa6d1dd177a6dd02",
+  measurementId: "G-SH49VMJJ4Q"
+};
+let db = null;
+if(FIREBASE_CONFIG.apiKey){
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    db = firebase.firestore();
+  }catch(e){ console.warn('Firebase init failed:', e); }
+}
+function cloudDocId(email){ return (email||'').trim().toLowerCase(); }
+
+let cloudSyncTimer = null;
+function scheduleCloudSync(){
+  if(!db || !state.profile || !state.profile.email) return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer = setTimeout(()=>{ pushStateToCloud(); }, 4000);
+}
+async function pushStateToCloud(){
+  if(!db || !state.profile || !state.profile.email) return;
+  const id = cloudDocId(state.profile.email);
+  if(!id) return;
+  try{
+    await db.collection('users').doc(id).set({
+      data: JSON.stringify(state),
+      updatedAt: new Date().toISOString()
+    });
+  }catch(e){ console.warn('Cloud sync failed:', e); }
+}
+async function pullStateFromCloud(email){
+  if(!db) return null;
+  const id = cloudDocId(email);
+  if(!id) return null;
+  try{
+    const doc = await db.collection('users').doc(id).get();
+    if(doc.exists) return JSON.parse(doc.data().data);
+    return null;
+  }catch(e){ console.warn('Cloud restore failed:', e); return null; }
 }
 
 function bumpStreak(){
