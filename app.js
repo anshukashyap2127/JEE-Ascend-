@@ -1699,6 +1699,23 @@ function submitToGoogleSheet(profile){
     setTimeout(()=>{ document.body.removeChild(form); }, 2000);
   }catch(e){}
 }
+function toggleRestoreBox(e){
+  e.preventDefault();
+  const box = document.getElementById('restoreBox');
+  box.style.display = box.style.display==='none' ? 'block' : 'none';
+}
+async function restoreFromCloud(){
+  const email = document.getElementById('restoreEmail').value.trim();
+  if(!email){ alert('Enter the email you registered with.'); return; }
+  if(!db){ alert("Cloud sync isn't set up in this copy of the app yet."); return; }
+  const restored = await pullStateFromCloud(email);
+  if(!restored){ alert("No saved data found for that email. Double-check it, or continue registering fresh above."); return; }
+  state = restored;
+  await save();
+  document.getElementById('onboardingScreen').style.display = 'none';
+  document.getElementById('mainApp').style.display = 'block';
+  renderAll();
+}
 function completeOnboarding(){
   const name = document.getElementById('obName').value.trim();
   if(!name){ alert('Please enter your name to continue.'); return; }
