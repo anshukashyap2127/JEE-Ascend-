@@ -2041,7 +2041,7 @@ Keep your streak alive 🔥`
   await load();
   await requestNotificationPermission();
   renderAll();
-  
+
 scheduleNextNotification();
   
   setTimeout(()=>{
