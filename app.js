@@ -1034,13 +1034,109 @@ function renderAnalytics(){
   el.innerHTML = html;
 }
 
-// ---------- FOCUS TIMER ----------
+// ---------- FOCUS Auido ----------
+const focusMusic = new Audio();
+
+focusMusic.loop = true;
+
+const focusTracks = {
+    Devotinoal : "music/radha.mp3",
+    white : "music/Sitar.mp3",
+    romantic : "music/Romatic.mp3"
+};
+
+let musicSettings = {
+    enabled: JSON.parse(localStorage.getItem("musicEnabled") || "true"),
+    muted: JSON.parse(localStorage.getItem("musicMuted") || "false"),
+    volume: Number(localStorage.getItem("musicVolume") || 0.4),
+    track: localStorage.getItem("musicTrack") || "Devotinoal"
+};
+
+focusMusic.src = focusTracks[musicSettings.track];
+focusMusic.volume = musicSettings.volume;
+focusMusic.muted = musicSettings.muted;
+
+//___________FOCUS TIMER____________
 let focusTimer = { mode:'focus', remainingSec:25*60, running:false, intervalId:null, initialized:false };
 
 function ensureFocusTimer(){
   if(focusTimer.initialized) return;
   focusTimer.remainingSec = state.settings.focusWorkMin*60;
   focusTimer.initialized = true;
+}
+
+function playFocusMusic(){
+
+    if(!musicSettings.enabled) return;
+
+    focusMusic.play().catch(err=>{
+        console.log(err);
+    });
+
+}
+
+function pauseFocusMusic(){
+
+    focusMusic.pause();
+
+}
+
+function toggleMusic(){
+
+    if(focusMusic.paused){
+        playFocusMusic();
+    }else{
+        pauseFocusMusic();
+    }
+
+}
+
+function pauseFocusMusic(){
+
+    focusMusic.pause();
+
+}
+
+function changeTrack(track){
+
+    musicSettings.track = track;
+
+    localStorage.setItem("musicTrack",track);
+
+    focusMusic.src = focusTracks[track];
+
+    if(focusTimer.running){
+
+        focusMusic.play();
+
+    }
+
+}
+
+function toggleMute(){
+
+    musicSettings.muted=!musicSettings.muted;
+
+    focusMusic.muted=musicSettings.muted;
+
+    localStorage.setItem(
+        "musicMuted",
+        musicSettings.muted
+    );
+
+}
+
+function changeVolume(value){
+
+    focusMusic.volume=value;
+
+    musicSettings.volume=value;
+
+    localStorage.setItem(
+        "musicVolume",
+        value
+    );
+
 }
 function playBeep(){
   try{
@@ -1068,6 +1164,27 @@ function startFocusTimer(){
 
     focusTimer.running = true;
 
+      playFocusMusic();
+
+      // Notification when focus starts
+showNotification(
+    "🎯 Focus Started",
+    `Stay locked in for ${state.settings.focusWorkMin} minutes.`
+);
+
+// Reminder for break (uses user's break duration)
+if(window.breakReminder){
+    clearTimeout(window.breakReminder);
+}
+
+window.breakReminder = setTimeout(() => {
+
+    showNotification(
+        "☕ Break Time",
+        `Take a ${state.settings.focusBreakMin}-minute break and recharge.`
+    );
+
+}, state.settings.focusWorkMin * 60 * 1000);
     // Save finish time
     focusTimer.endTime = Date.now() + focusTimer.remainingSec * 1000;
 
@@ -1103,7 +1220,11 @@ function startFocusTimer(){
 
 }
 function pauseFocusTimer(){
+  if(window.breakReminder){
+    clearTimeout(window.breakReminder);
+}
   focusTimer.running = false;
+  pauseFocusMusic();
   clearInterval(focusTimer.intervalId);
 
   localStorage.removeItem("focusEndTime");
@@ -1120,14 +1241,43 @@ function resetFocusTimer(){
 function completeFocusSession(){
   pauseFocusTimer();
   playBeep();
+
+showNotification(
+    "✅ Focus Session Complete",
+    `Great job! Enjoy your ${state.settings.focusBreakMin}-minute break.`
+);
+  pauseFocusMusic();
+
   if(focusTimer.mode === 'focus'){
     const log = getTodayLog();
     log.hours = Math.round((log.hours + state.settings.focusWorkMin/60) * 100) / 100;
     log.focusSessions = (log.focusSessions||0) + 1;
     save();
     focusTimer.mode = 'break';
+    const breakMessages = [
+
+    (m) => `☕ Great work! Relax for ${m} minute${m>1?"s":""}.`,
+    (m) => `😌 You earned a ${m}-minute break.`,
+    (m) => `🧠 Your brain deserves ${m} minutes of recovery.`,
+    (m) => `💧 Drink some water and come back in ${m} minutes.`,
+    (m) => `🚶 Stretch your body. Break ends in ${m} minutes.`,
+    (m) => `🌿 Recharge yourself. See you in ${m} minutes!`
+
+];
+
+   const breakMin = state.settings.focusBreakMin;
+
+showNotification(
+    "☕ Break Time",
+    `Great work! Relax for ${breakMin} minute${breakMin > 1 ? "s" : ""}.`
+);
+
   } else {
     focusTimer.mode = 'focus';
+    showNotification(
+    "🎯 Ready Again, felt relaxed",
+    "Let's begin another focus session."
+);
   }
   focusTimer.remainingSec = focusTotalSec();
   renderFocus();
@@ -1184,12 +1334,67 @@ function renderFocus(){
       <div class="stat-box"><div class="val">${log.hours}h</div><div class="lbl">logged today</div></div>
       <div class="stat-box"><div class="val">${state.streak.count} 🔥</div><div class="lbl">day streak</div></div>
     </div>
+    
     <div class="focus-checklist">
+
       <div class="item">Phone on silent, out of reach</div>
       <div class="item">One chapter or task open — nothing else</div>
       <div class="item">Water bottle filled before you start</div>
       <div class="item">A completed session logs its minutes to today's mission automatically</div>
     </div>
+    <div class="focus-music">
+
+<h3>🎵 Focus Soundscape</h3>
+
+<p>Relaxing sounds to improve concentration</p>
+
+<select onchange="changeTrack(this.value)">
+<option
+value="Devotinoal"
+${musicSettings.track==="cafe"?"selected":""}>
+☕ Devotinoal
+</option>
+
+<option
+value="white"
+${musicSettings.track==="white"?"selected":""}>
+🤍 White Noise
+</option>
+
+<option
+value="romantic"
+${musicSettings.track==="romantic"?"selected":""}>
+🤍 Kiss Noise
+</option>
+
+</select>
+
+<div class="music-controls">
+
+<button onclick="toggleMusic()">
+
+🎵 Play / Pause
+
+</button>
+
+<button
+onclick="toggleMute()">
+
+🔇
+
+</button>
+
+</div>
+
+<input
+type="range"
+min="0"
+max="1"
+step="0.01"
+value="${musicSettings.volume}"
+oninput="changeVolume(this.value)">
+
+</div>
   </div>`;
 }
 
@@ -1756,7 +1961,6 @@ async function restoreFromCloud(){
   document.getElementById('mainApp').style.display = 'block';
   renderAll();
 }
-
 function logoutUser(){
 
     if(!confirm("Are you sure you want to logout?")){
@@ -1784,6 +1988,10 @@ function completeOnboarding(){
   document.getElementById('onboardingScreen').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
   renderAll();
+  localStorage.setItem(
+    "onboardingCompleted",
+    "true"
+);
 }
 
 if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
@@ -1792,9 +2000,56 @@ if('serviceWorker' in navigator && (location.protocol === 'https:' || location.h
   });
 }
 
+// ======================
+// NOTIFICATIONS
+// ======================
+
+async function requestNotificationPermission(){
+
+    if(!("Notification" in window)){
+        console.log("Notifications not supported");
+        return;
+    }
+
+    if(Notification.permission === "default"){
+        await Notification.requestPermission();
+    }
+
+}
+
+function showNotification(title, body){
+
+  function dailyMissionNotification(){
+
+    const today = getTodayLog();
+
+    showNotification(
+        "🎯 Today's Mission",
+        `Study Hours : ${today.hours}h
+Sessions : ${today.focusSessions || 0}
+Keep your streak alive 🔥`
+    );
+
+}
+
+    if(Notification.permission !== "granted") return;
+
+    new Notification(title,{
+        body: body,
+        icon:"icons/icon-192.png",
+        badge:"icons/icon-192.png",
+        silent:true
+    });
+
+}
+
 (async function init(){
   await load();
+  await requestNotificationPermission();
   renderAll();
+  
+scheduleNextNotification();
+  
   setTimeout(()=>{
     document.getElementById('splashScreen').style.display = 'none';
     if(state.profile && state.profile.name){
@@ -1809,6 +2064,24 @@ if('serviceWorker' in navigator && (location.protocol === 'https:' || location.h
     if(t !== lastKnownDay){
       lastKnownDay = t;
       renderAll();
+
+      // ================================
+// Planner Reminder
+// ================================
+setInterval(() => {
+
+    const pending = state.tasks
+        ? state.tasks.filter(t => !t.done).length
+        : 0;
+
+    if (pending > 0) {
+        showNotification(
+            "📚 Planner Reminder",
+            `You still have ${pending} task(s) left today.`
+        );
+    }
+
+}, 3600000);
     }
   }
   setInterval(checkDayRollover, 60000);
@@ -1900,3 +2173,82 @@ document.addEventListener("visibilitychange",()=>{
     }
 
 });
+
+
+const notificationMessages = {
+
+    morning: [
+        "🌞 Good Morning! Kya plan hai aaj ka?",
+        "🎯 IIT ka sapna yaad hai? Aaj ka target set karo.",
+        "📚 Aaj ka mission shuru karte hain.",
+        "🔥 Aaj ka din streak ke naam."
+    ],
+
+    afternoon: [
+        "💪 Bas ek focus session aur.",
+        "📵 Phone baad me, rank pehle.",
+        "⚡ Aaj ka momentum mat todna.",
+        "🚀 Future wala tum thank you bolega."
+    ],
+
+    evening: [
+        "📊 Aaj kitna complete hua?",
+        "📚 Planner check kiya?",
+        "🎯 Bas kuch tasks aur.",
+        "🔥 Finish strong."
+    ],
+
+    night: [
+        "🌙 Streak puri karke hi sona.",
+        "🏆 Kal ki tension aaj khatam karo.",
+        "💯 Ek session aur.",
+        "⭐ Consistency wins."
+    ]
+
+};
+
+
+function randomMessage(type){
+
+    const list = notificationMessages[type];
+
+    return list[
+        Math.floor(Math.random()*list.length)
+    ];
+
+}
+
+function notificationType(){
+
+    const h = new Date().getHours();
+
+    if(h<11)
+        return "morning";
+
+    if(h<17)
+        return "afternoon";
+
+    if(h<21)
+        return "evening";
+
+    return "night";
+
+}
+
+function scheduleNextNotification(){
+
+    const min = 2*60*60*1000;
+
+    const max = 5*60*60*1000;
+
+    const delay = Math.random()*(max-min)+min;
+
+    setTimeout(()=>{
+
+        sendMotivation();
+
+        scheduleNextNotification();
+
+    },delay);
+
+}
