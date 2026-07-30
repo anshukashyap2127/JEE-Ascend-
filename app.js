@@ -1625,6 +1625,46 @@ function renderSettings(){
 
 </div>
   </div>`;
+
+  html += `
+<div class="settings-block">
+
+    <div class="section-title">
+        Account
+    </div>
+
+    <div class="logout-card">
+
+        <div class="logout-left">
+
+            <div class="logout-icon">
+                🚪
+            </div>
+
+            <div>
+
+                <div class="logout-title">
+                    Sign out
+                </div>
+
+                <div class="logout-desc">
+                    Log out from this device. Your study progress remains safely saved.
+                </div>
+
+            </div>
+
+        </div>
+
+        <button
+            class="logout-btn"
+            onclick="logoutUser()">
+            Logout
+        </button>
+
+    </div>
+
+</div>
+`;
   el.innerHTML = html;
 }
 
@@ -1716,6 +1756,21 @@ async function restoreFromCloud(){
   document.getElementById('mainApp').style.display = 'block';
   renderAll();
 }
+
+function logoutUser(){
+
+    if(!confirm("Are you sure you want to logout?")){
+        return;
+    }
+
+    state.profile = null;
+
+    save();
+
+    document.getElementById("mainApp").style.display = "none";
+    document.getElementById("onboardingScreen").style.display = "flex";
+}
+
 function completeOnboarding(){
   const name = document.getElementById('obName').value.trim();
   if(!name){ alert('Please enter your name to continue.'); return; }
