@@ -1,5 +1,6 @@
-const CACHE_NAME = 'jee-ascend-v1';
-const ASSETS = ['./', './index.html', './style.css', './app.js', './manifest.json'];
+const CACHE_NAME = 'jee-ascend-v2';
+const ASSETS = ['./', './index.html', './style.css', './app.js',   '.music/radha.mp3',
+    '.music/Sitar.mp3'./manifest.json'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
