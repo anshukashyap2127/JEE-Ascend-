@@ -1041,8 +1041,7 @@ focusMusic.loop = true;
 
 const focusTracks = {
     Devotinoal : "music/radha.mp3",
-    white : "music/Sitar.mp3",
-    romantic : "music/Romatic.mp3"
+    white : "music/Sitar.mp3"
 };
 
 let musicSettings = {
@@ -1361,11 +1360,6 @@ ${musicSettings.track==="white"?"selected":""}>
 🤍 White Noise
 </option>
 
-<option
-value="romantic"
-${musicSettings.track==="romantic"?"selected":""}>
-🤍 Kiss Noise
-</option>
 
 </select>
 
