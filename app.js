@@ -922,7 +922,7 @@ function renderSubjects(){
 function renderPlanner(){
   const el = document.getElementById('view-planner');
   const all = allChapters();
-  const due = all.map(c=>({c,st:computeRevisionStatus(c)})).filter(x=>x.st && (x.st.backlogs||x.st.dueToday)).sort((a,b)=>a.st.daysTo-b.st.daysTo);
+  const due = all.map(c=>({c,st:computeRevisionStatus(c)})).filter(x=>x.st && (x.st.overdue||x.st.dueToday)).sort((a,b)=>a.st.daysTo-b.st.daysTo);
   const upcoming = all.map(c=>({c,st:computeRevisionStatus(c)})).filter(x=>x.st && x.st.upcoming && x.st.daysTo<=3).sort((a,b)=>a.st.daysTo-b.st.daysTo);
   const fresh = all.filter(c=>!c.lecture).slice(0,3);
   const weakFocus = all.filter(c=>c.strength==='weak' && c.lecture).slice(0,3);
