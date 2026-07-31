@@ -930,7 +930,7 @@ function renderPlanner(){
   let html = `<div class="section-title" style="margin-top:0">Plan your week <span class="count">tap + on any day</span></div>`;
   html += `<div class="week-grid">${weekPlannerHTML()}</div>`;
 
-  html += `<div class="section-title">Revisions due today / Backlogs  <span class="count">${due.length}</span></div>`;
+  html += `<div class="section-title">Revisions due today /Backlogs<span class="count">${due.length}</span></div>`;
   html += due.length ? due.map(x=>`<div class="mission-row"><span class="tag ${x.st.overdue?'tag-overdue':'tag-due'}">${x.st.overdue?Math.abs(x.st.daysTo)+'d overdue':'today'}</span><div style="flex:1"><div class="name">${x.c.name}</div><div class="sub">${x.c.subject} · Revision ${x.st.idx+1}</div></div><button onclick="markRevisionDone(state.chapters['${x.c.subject}'].find(c=>c.id==='${x.c.id}'),${x.st.idx})">Mark done</button></div>`).join('') : `<div class="empty">All caught up on revisions.</div>`;
 
   html += `<div class="section-title">New chapter to start</div>`;
