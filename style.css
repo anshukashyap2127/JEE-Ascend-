@@ -1647,3 +1647,58 @@ width:100%;
   padding: 6px 10px !important;
   font-size: 12px !important;
 }
+
+/* ============================================================
+   FIX: Weekly Planner Input Overflow & Button Alignment
+   ============================================================ */
+
+/* Force cards to constrain child elements */
+.day-card {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
+
+/* Force task row to stay on one line without wrapping */
+.day-card .task-add-row {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  width: 100% !important;
+  gap: 6px !important;
+  margin: 8px 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* Force the input box to shrink neatly inside the card */
+.day-card .task-add-row input {
+  flex: 1 1 0% !important;
+  min-width: 0 !important;
+  width: 0 !important;
+  font-size: 11.5px !important;
+  padding: 6px 8px !important;
+  border-radius: 6px !important;
+  box-sizing: border-box !important;
+}
+
+/* Fix the '+' button to a clean, non-overlapping square */
+.day-card .task-add-row button {
+  flex: 0 0 28px !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  border-radius: 6px !important;
+  box-sizing: border-box !important;
+}
+
+/* Prevent planner details box from breaking layout when selected */
+.planner-date-details {
+  width: 100% !important;
+  box-sizing: border-box !important;
+  overflow: hidden !important;
+}
