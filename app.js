@@ -1591,73 +1591,190 @@ function renderPersonalize(){
 let practicePhase = "My Tests";
 let pbFilterSubject = "All";
 let pbFilterDifficulty = "All";
+// Toggle expandable test details card
+function toggleTestDetails(id) {
+  const card = document.getElementById('test-card-' + id);
+  if (card) {
+    card.classList.toggle('open');
+  }
+}
 
-function testCardHTML(t){
+// Render edge-to-edge mobile test card HTML
+function testCardHTML(t) {
   const d = new Date(t.date + 'T00:00:00');
   const daysTo = daysBetween(todayStr(), t.date);
   const isNext = daysTo >= 0;
   const dnum = d.getDate();
-  const dmon = d.toLocaleDateString('en-IN',{month:'short'});
-  const countdown = daysTo > 0 ? `in ${daysTo}d` : daysTo === 0 ? 'today' : `${Math.abs(daysTo)}d ago`;
+  const dmon = d.toLocaleDateString('en-IN', { month: 'short' });
+  const countdown = daysTo > 0 ? `in ${daysTo}d` : daysTo === 0 ? 'Today' : `${Math.abs(daysTo)}d ago`;
+
   const attempts = Array.isArray(t.attempts) ? t.attempts : [];
-  const best = attempts.length ? Math.max(...attempts.map(a => Number(a.total || 0))) : 0;
-  const latest = attempts.length ? attempts[attempts.length - 1] : null;
-  const resultSummary = attempts.length ? `<div class="test-score-summary"><span class="score-pill">Best ${best}</span><span class="score-pill">Attempts ${attempts.length}</span>${latest ? `<span class="score-pill">Latest ${latest.total}</span>` : ''}</div>` : `<div class="test-score-summary"><span class="score-pill">No score yet</span></div>`;
+  const attemptedCount = attempts.length;
+  const isAttempted = attemptedCount > 0;
+  const bestScore = isAttempted ? Math.max(...attempts.map(a => Number(a.total || 0))) : 0;
+  const latestAttempt = isAttempted ? attempts[attempts.length - 1] : null;
+
+  const statusPill = isAttempted 
+    ? `<span class="test-pill attempted">✓ ${attemptedCount} Attempt${attemptedCount > 1 ? 's' : ''}</span>`
+    : `<span class="test-pill pending">○ Pending</span>`;
+
   const attemptRows = attempts.length ? attempts.map((a, idx) => `
-    <div class="attempt-row">
-      <span class="attempt-no">Attempt ${idx + 1}</span>
-      <span class="attempt-date">${a.date}</span>
-      <span class="attempt-marks">P ${a.marks.physics || 0} · C ${a.marks.chemistry || 0} · M ${a.marks.maths || 0}</span>
-      <span class="attempt-total">${a.total || 0}</span>
-    </div>`).join('') : `<div class="empty small-empty">No attempts recorded yet.</div>`;
-  return `<div class="test-card ${isNext && daysTo<=14 ? 'is-next' : ''}">
-    <div class="test-date-badge"><div class="dnum">${dnum}</div><div class="dmon">${dmon}</div></div>
-    <div class="test-body">
-      <div class="test-head">
-        <span class="test-name">${t.name}</span>
-        <span class="test-pattern ${t.pattern==='JEE Adv'?'adv':''}">${t.pattern}</span>
-        <span class="test-countdown">${countdown}</span>
-        <button class="chapter-trash" onclick="deleteTestItem('${t.id}')">&times;</button>
+    <div class="attempt-item-card">
+      <div class="attempt-item-top">
+        <span class="attempt-badge">Attempt #${idx + 1}</span>
+        <span class="attempt-date-text">${a.date}</span>
+        <span class="attempt-total-score">${a.total || 0} pts</span>
       </div>
-      <div class="test-syllabus-row phy"><span class="subj-tag">Physics</span><span>${t.physics}</span></div>
-      <div class="test-syllabus-row chem"><span class="subj-tag">Chemistry</span><span>${t.chemistry}</span></div>
-      <div class="test-syllabus-row math"><span class="subj-tag">Maths</span><span>${t.maths}</span></div>
-      ${resultSummary}
-      <div class="test-score-panel">
-        <div class="score-input-grid">
-          <label>Physics<input id="phy_${t.id}" type="number" min="0" placeholder="0"></label>
-          <label>Chemistry<input id="chem_${t.id}" type="number" min="0" placeholder="0"></label>
-          <label>Maths<input id="math_${t.id}" type="number" min="0" placeholder="0"></label>
-          <label>Total<input id="total_${t.id}" type="number" min="0" placeholder="0"></label>
+      <div class="attempt-item-breakdown">
+        <span>Phy: <strong>${a.marks.physics || 0}</strong></span>
+        <span>Chem: <strong>${a.marks.chemistry || 0}</strong></span>
+        <span>Math: <strong>${a.marks.maths || 0}</strong></span>
+      </div>
+    </div>`).join('') : `<div class="empty-attempts-msg">No attempts recorded yet.</div>`;
+
+  return `
+  <div class="test-card ${isNext && daysTo <= 14 ? 'is-next' : ''}" id="test-card-${t.id}">
+    <div class="test-card-header" onclick="toggleTestDetails('${t.id}')">
+      <div class="test-date-badge">
+        <span class="dnum">${dnum}</span>
+        <span class="dmon">${dmon}</span>
+      </div>
+
+      <div class="test-header-main">
+        <div class="test-header-row-1">
+          <span class="test-name">${t.name}</span>
+          <span class="test-pattern ${t.pattern === 'JEE Adv' ? 'adv' : ''}">${t.pattern}</span>
+          ${statusPill}
         </div>
-        <button class="test-complete-btn" onclick="completeTestAttempt('${t.id}')">Complete test</button>
+        <div class="test-header-row-2">
+          <span class="test-quick-stat">${isAttempted ? `Best: <strong>${bestScore}</strong> · Latest: <strong>${latestAttempt.total}</strong>` : 'Tap to expand syllabus & log score'}</span>
+          <span class="test-countdown-tag">${countdown}</span>
+        </div>
       </div>
-      <div class="attempt-history">
-        <div class="attempt-history-head">Attempt history</div>
-        ${attemptRows}
+
+      <div class="test-header-actions">
+        <div class="test-expand-chevron">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+        </div>
+        <button class="test-delete-btn" onclick="event.stopPropagation(); deleteTestItem('${t.id}')" title="Delete Test">&times;</button>
+      </div>
+    </div>
+
+    <div class="test-card-body">
+      <!-- SYLLABUS SECTION -->
+      <div class="test-section">
+        <div class="test-section-header">📚 Syllabus Details</div>
+        <div class="syllabus-card">
+          <div class="syllabus-row phy">
+            <span class="subj-label">PHYSICS</span>
+            <span class="subj-desc">${t.physics || 'Full Syllabus'}</span>
+          </div>
+          <div class="syllabus-row chem">
+            <span class="subj-label">CHEMISTRY</span>
+            <span class="subj-desc">${t.chemistry || 'Full Syllabus'}</span>
+          </div>
+          <div class="syllabus-row math">
+            <span class="subj-label">MATHS</span>
+            <span class="subj-desc">${t.maths || 'Full Syllabus'}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- PERFORMANCE SUMMARY -->
+      <div class="test-section">
+        <div class="test-section-header">📊 Test Performance Summary</div>
+        <div class="summary-metrics-row">
+          <div class="metric-box">
+            <span class="m-label">Attempts</span>
+            <span class="m-val">${attemptedCount}</span>
+          </div>
+          <div class="metric-box">
+            <span class="m-label">Best Score</span>
+            <span class="m-val green">${isAttempted ? bestScore : '—'}</span>
+          </div>
+          <div class="metric-box">
+            <span class="m-label">Latest Score</span>
+            <span class="m-val blue">${latestAttempt ? latestAttempt.total : '—'}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- SUBMIT MARKS FORM -->
+      <div class="test-section">
+        <div class="test-section-header">✍️ Submit Test Marks</div>
+        <div class="score-form-box">
+          <div class="score-fields-grid">
+            <div class="score-field">
+              <label for="phy_${t.id}">PHYSICS</label>
+              <input id="phy_${t.id}" type="number" min="0" placeholder="0">
+            </div>
+            <div class="score-field">
+              <label for="chem_${t.id}">CHEMISTRY</label>
+              <input id="chem_${t.id}" type="number" min="0" placeholder="0">
+            </div>
+            <div class="score-field">
+              <label for="math_${t.id}">MATHS</label>
+              <input id="math_${t.id}" type="number" min="0" placeholder="0">
+            </div>
+            <div class="score-field">
+              <label for="total_${t.id}">TOTAL MARKS</label>
+              <input id="total_${t.id}" type="number" min="0" placeholder="0">
+            </div>
+          </div>
+          <button class="submit-score-btn" onclick="completeTestAttempt('${t.id}')">Submit Score</button>
+        </div>
+      </div>
+
+      <!-- ATTEMPT HISTORY -->
+      <div class="test-section">
+        <div class="test-section-header">📜 Attempt History (${attemptedCount})</div>
+        <div class="history-list">
+          ${attemptRows}
+        </div>
       </div>
     </div>
   </div>`;
 }
-function completeTestAttempt(testId){
-  const test = state.tests.find(x=>x.id===testId);
-  if(!test) return;
-  const marks = {
-    physics: Number(document.getElementById(`phy_${testId}`).value) || 0,
-    chemistry: Number(document.getElementById(`chem_${testId}`).value) || 0,
-    maths: Number(document.getElementById(`math_${testId}`).value) || 0
-  };
-  const total = Number(document.getElementById(`total_${testId}`).value) || (marks.physics + marks.chemistry + marks.maths);
-  if(total <= 0) return;
+
+function completeTestAttempt(testId) {
+  const test = state.tests.find(x => x.id === testId);
+  if (!test) return;
+
+  const physicsMarks = Number(document.getElementById(`phy_${testId}`)?.value) || 0;
+  const chemistryMarks = Number(document.getElementById(`chem_${testId}`)?.value) || 0;
+  const mathsMarks = Number(document.getElementById(`math_${testId}`)?.value) || 0;
+  const totalInputValue = document.getElementById(`total_${testId}`)?.value;
+
+  let scoreTotal = 0;
+  if (totalInputValue !== undefined && totalInputValue !== null && totalInputValue.trim() !== '') {
+    scoreTotal = Number(totalInputValue) || 0;
+  } else {
+    scoreTotal = physicsMarks + chemistryMarks + mathsMarks;
+  }
+
+  if (scoreTotal <= 0 && physicsMarks === 0 && chemistryMarks === 0 && mathsMarks === 0) {
+    alert("Please enter marks before submitting.");
+    return;
+  }
+
   test.attempts = test.attempts || [];
   test.attempts.push({
     date: todayStr(),
-    marks,
-    total
+    marks: { physics: physicsMarks, chemistry: chemistryMarks, maths: mathsMarks },
+    total: scoreTotal
   });
-  showCelebrationBurst(`Test scored ${total}`);
-  save(); renderPractice();
+
+  showCelebrationBurst(`Test score recorded: ${scoreTotal}`);
+  save();
+  renderPractice();
+
+  // Keep test card expanded after render
+  setTimeout(() => {
+    const card = document.getElementById(`test-card-${testId}`);
+    if (card) card.classList.add('open');
+  }, 50);
 }
+
 function addTestItem(){
   const date = document.getElementById('tDate').value;
   const name = document.getElementById('tName').value.trim();
