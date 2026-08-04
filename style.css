@@ -1613,3 +1613,37 @@ width:100%;
   border-color: #2c3970;
   font-weight: 600;
 }
+
+
+
+/* ============================================================
+   FIX: Prevent 'Add a task' input overflow inside Planner Cards
+   ============================================================ */
+
+.day-card {
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.day-card .task-add-row {
+  display: flex !important;
+  width: 100% !important;
+  gap: 6px !important;
+  margin: 0 0 8px !important;
+  box-sizing: border-box !important;
+}
+
+.day-card .task-add-row input {
+  flex: 1 1 0% !important;
+  min-width: 0 !important; /* Forces the input to shrink inside the card */
+  width: 0 !important;      /* Prevents flexbox overflow bug */
+  font-size: 11.5px !important;
+  padding: 6px 8px !important;
+  box-sizing: border-box !important;
+}
+
+.day-card .task-add-row button {
+  flex-shrink: 0 !important; /* Keeps the '+' button properly sized */
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+}
