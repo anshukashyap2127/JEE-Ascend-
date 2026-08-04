@@ -32,7 +32,7 @@ body::before{
 ::-webkit-scrollbar{width:8px;height:8px;}
 ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
 
-.app{display:grid;grid-template-columns:220px 1fr;min-height:100dvh;width:100%;max-width:1400px;margin:0 auto;flex:1;}
+.app{display:grid;grid-template-columns:260px 1fr;min-height:100vh;width:100%;max-width:1650px;margin:0 auto;flex:1;}
 .hamburger-btn{display:none;background:var(--panel);border:1px solid var(--line);color:var(--text);width:38px;height:38px;border-radius:8px;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;}
 .hamburger-btn svg{width:18px;height:18px;}
 .sidebar-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:150;}
@@ -128,7 +128,7 @@ body::before{
   .app-footer{left:0;padding-bottom:calc(12px + env(safe-area-inset-bottom));}
 }
 
-.sidebar{background:var(--panel);border-right:1px solid var(--line);padding:24px 16px;display:flex;flex-direction:column;gap:4px;}
+.sidebar{position:sticky;top:0;height:100vh;background:var(--panel);border-right:1px solid var(--line);padding:28px 18px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;}
 .brand{font-family:var(--display);font-weight:700;font-size:calc(19px * var(--font-scale));letter-spacing:-0.02em;margin-bottom:28px;padding:0 8px;display:flex;align-items:center;gap:8px;}
 .brand .mark{width:11px;height:11px;border-radius:2.5px;background:linear-gradient(135deg,var(--accent),#8FA8FF);transform:rotate(45deg);box-shadow:0 0 10px rgba(91,124,255,0.55);}
 .navitem{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:var(--radius);color:var(--text-2);font-size:calc(14px * var(--font-scale));font-weight:500;cursor:pointer;border:1px solid transparent;transition:background .12s;}
@@ -136,7 +136,7 @@ body::before{
 .navitem.active{background:var(--accent-dim);color:var(--accent);border-color:#2C3970;}
 .navitem svg{width:16px;height:16px;flex-shrink:0;}
 
-.main{padding:28px 36px 60px;max-width:1180px;width:100%;margin:0 auto;}
+.main{padding:32px 48px 80px;max-width:1380px;width:100%;margin:0;}
 .topbar{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px;flex-wrap:wrap;gap:16px;}
 .pagetitle{font-family:var(--display);font-size:calc(26px * var(--font-scale));font-weight:600;letter-spacing:-0.01em;}
 .pagesub{color:var(--text-2);font-size:calc(13px * var(--font-scale));margin-top:4px;}
@@ -1500,4 +1500,116 @@ width:100%;
   color: var(--text-3);
   font-style: italic;
   padding: 4px 0;
+}
+
+/* ============================================================
+   DESKTOP & WIDESCREEN WEB LAYOUT OPTIMIZATIONS
+   ============================================================ */
+
+/* Expanded max container width for desktop displays */
+.app {
+  display: grid;
+  grid-template-columns: 260px 1fr;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 1650px;
+  margin: 0 auto;
+  flex: 1;
+}
+
+/* Sticky sidebar layout on desktop */
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 28px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow-y: auto;
+}
+
+.main {
+  padding: 32px 48px 80px;
+  max-width: 1380px;
+  width: 100%;
+  margin: 0;
+}
+
+/* Desktop Hide Mobile Bottom Bar and Top Bar */
+@media (min-width: 821px) {
+  #bottomNav,
+  .bottom-nav,
+  .mobile-topbar {
+    display: none !important;
+  }
+
+  .app-footer {
+    left: 260px;
+  }
+}
+
+/* Widescreen Desktop Grid Enhancements (1200px+) */
+@media (min-width: 1200px) {
+  .grid-4 {
+    grid-template-columns: repeat(4, 1fr) !important;
+  }
+
+  .grid-3 {
+    grid-template-columns: repeat(3, 1fr) !important;
+  }
+
+  .grid-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  .week-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    overflow-x: visible;
+  }
+
+  .day-card {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .score-input-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Ultra-wide Monitors (1600px+) */
+@media (min-width: 1600px) {
+  .main {
+    max-width: 1480px;
+  }
+
+  .stat .val {
+    font-size: calc(30px * var(--font-scale));
+  }
+
+  .chart-wrap {
+    height: 180px;
+  }
+}
+
+/* Desktop Sidebar Nav Hover States */
+.navitem {
+  transition: background 0.18s ease, color 0.18s ease, transform 0.14s ease;
+}
+
+.navitem:hover {
+  background: var(--panel-2);
+  color: var(--text);
+  transform: translateX(3px);
+}
+
+.navitem.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border-color: #2c3970;
+  font-weight: 600;
 }
