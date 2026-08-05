@@ -769,6 +769,7 @@ function closeToday(){
       save();
       renderAll();
       showCelebrationToast('Streak reset to 0 🔥', '⚠️');
+      if(typeof notifyDayComplete === 'function') notifyDayComplete(0, state.streak.count);
     });
     return;
   }
