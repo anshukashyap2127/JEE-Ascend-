@@ -2250,30 +2250,44 @@ function logoutUser(){
     document.getElementById("onboardingScreen").style.display = "flex";
 }
 
-function completeOnboarding(){
+async function completeOnboarding(){
   const name = document.getElementById('obName').value.trim();
   if(!name){ alert('Please enter your name to continue.'); return; }
   const email = document.getElementById('obEmail').value.trim();
   if(!email || email.indexOf('@')===-1 || email.indexOf('.')===-1){ alert('Please enter a valid email address to continue.'); return; }
   const cls = document.getElementById('obClass').value;
   const exam = document.getElementById('obExam').value;
+
+  // 1. Check if existing Cloud Data exists for this email BEFORE creating a new profile
+  if(db){
+    const cloudData = await pullStateFromCloud(email);
+    if(cloudData && cloudData.chapters){
+      const shouldRestore = confirm(
+        `Found existing study progress for ${email}!\n\nClick OK to restore your data on this device.`
+      );
+      if(shouldRestore){
+        state = cloudData;
+        await save();
+        document.getElementById('onboardingScreen').style.display = 'none';
+        document.getElementById('mainApp').style.display = 'block';
+        renderAll();
+        showBottomNav();
+        return;
+      }
+    }
+  }
+
+  // 2. If no cloud data exists, create a fresh profile
   state.profile = { name, email, class: cls, examTarget: exam };
-  save();
+  await save();
+  pushStateToCloud(); // Immediately push to cloud (no delay)
   submitToGoogleSheet(state.profile);
+  
   document.getElementById('onboardingScreen').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
   renderAll();
   showBottomNav();
-  localStorage.setItem(
-    "onboardingCompleted",
-    "true"
-);
-}
-
-if('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')){
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  });
+  localStorage.setItem("onboardingCompleted", "true");
 }
 
 (async function init(){
