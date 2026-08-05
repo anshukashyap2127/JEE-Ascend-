@@ -353,6 +353,9 @@ async function load(){
   if(!state.examDate){
     const d = new Date(); d.setMonth(d.getMonth()+6);
     state.examDate = localDateStr(d);
+    
+  checkStreakValidity();  // to check the streak wheather it is >0
+  save();
   }
   if(!state.streak) state.streak = {count:0,last:null};
   if(!state.mistakes) state.mistakes = [];
@@ -450,14 +453,48 @@ async function pullStateFromCloud(email){
   }catch(e){ console.warn('Cloud restore failed:', e); return null; }
 }
 
-function bumpStreak(){
+// Check if a day was skipped without logging
+function checkStreakValidity(){
+  if(!state.streak) state.streak = {count: 0, last: null};
+  if(!state.streak.last) return;
+
   const t = todayStr();
+  const diff = daysBetween(state.streak.last, t);
+
+  // If more than 1 day has passed since last active streak (skipped a day), reset to 0
+  if(diff > 1){
+    state.streak.count = 0;
+  }
+}
+
+function bumpStreak(){
+  checkStreakValidity();
+  const t = todayStr();
+  const log = getTodayLog();
+  const hours = Number(log.hours) || 0;
+  const progress = missionProgress();
+
+  // IF 0 study hours AND 0% progress -> STREAK RESETS TO 0!
+  if(hours <= 0 && progress <= 0){
+    state.streak.count = 0;
+    state.streak.last = t;
+    return;
+  }
+
   if(state.streak.last === t) return;
+
   const y = new Date(); y.setDate(y.getDate()-1);
   const yStr = localDateStr(y);
-  state.streak.count = (state.streak.last === yStr) ? state.streak.count+1 : 1;
+
+  // Increment streak if yesterday was completed, otherwise start at 1
+  if(state.streak.last === yStr && state.streak.count > 0){
+    state.streak.count += 1;
+  } else {
+    state.streak.count = 1;
+  }
   state.streak.last = t;
 }
+
 
 function allChapters(){
   let arr = [];
@@ -682,17 +719,75 @@ function weekPlannerHTML(){
   return html;
 }
 
+// Function to show the stylish Warning Card Modal
+function showStreakWarningModal(onConfirm){
+  const existing = document.getElementById('warningModalOverlay');
+  if(existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'warningModalOverlay';
+  modal.className = 'warning-modal-overlay';
+  modal.innerHTML = `
+    <div class="warning-card-box">
+      <div class="warning-card-icon">🔥</div>
+      <div class="warning-card-title">Streak Will Reset to 0</div>
+      <div class="warning-card-desc">
+        You have logged <strong>0 study hours</strong> and <strong>0% progress</strong> today.<br><br>
+        Closing out today now will break your current <strong>${state.streak.count} day streak</strong> and bring it down to <strong>0 🔥</strong>.
+      </div>
+      <div class="warning-card-actions">
+        <button class="warning-btn-study" id="btnKeepStudying">Back to Study (Keep Streak)</button>
+        <button class="warning-btn-reset" id="btnConfirmReset">Close Day & Reset Streak to 0</button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  document.getElementById('btnKeepStudying').addEventListener('click', () => {
+    modal.remove();
+  });
+
+  document.getElementById('btnConfirmReset').addEventListener('click', () => {
+    modal.remove();
+    onConfirm();
+  });
+}
+
+// Updated closeToday function using the new Modal
 function closeToday(){
   const log = getTodayLog();
-  if(missionProgress() < 100){
-    if(!confirm("Today's mission isn't fully complete yet. Close it out anyway? This will still count toward your streak.")) return;
+  const progress = missionProgress();
+  const hours = Number(log.hours) || 0;
+
+  // IF 0 STUDY HOURS AND 0% PROGRESS -> SHOW STYLISH WARNING MODAL
+  if(hours <= 0 && progress <= 0){
+    showStreakWarningModal(() => {
+      log.completed = true;
+      state.streak.count = 0;
+      state.streak.last = todayStr();
+      save();
+      renderAll();
+      showCelebrationToast('Streak reset to 0 🔥', '⚠️');
+    });
+    return;
   }
+
+  // IF PARTIAL PROGRESS (< 100% BUT > 0%)
+  if(progress < 100){
+    if(!confirm("Today's mission isn't fully complete yet. Close it out anyway?")) return;
+  }
+
+  // VALID PROGRESS LOGGED (> 0)
   log.completed = true;
   bumpStreak();
   awardDailyPoints();
-  if(typeof notifyDayComplete === 'function') notifyDayComplete();
-  save(); renderAll();
+  if(typeof notifyDayComplete === 'function') notifyDayComplete(progress, state.streak.count);
+  save();
+  renderAll();
 }
+
+
 function heatmapHTML(){
   let html = '';
   for(let i=29;i>=0;i--){
@@ -904,7 +999,21 @@ function renderDashboard(){
   </div>`;
 
   html += `<div class="mission-card">
+
+  // Inside renderDashboard():
+const hoursLogged = Number(log.hours) || 0;
+const zeroAlertHTML = (hoursLogged <= 0 && progress <= 0 && !closedToday) ? `
+  <div class="zero-progress-alert">
+    <div class="alert-icon">⚠️</div>
+    <div>
+      <strong>0% Progress Logged Today</strong>
+      <span>Log study hours or complete tasks before closing out, or your streak will reset to 0 🔥.</span>
+    </div>
+  </div>
+` : '';
+
     <div class="mission-card-top">
+    
       <div>
         <div class="mission-card-title">Today's mission</div>
         <div class="pagesub" style="margin-top:2px">Add your own tasks, set targets, then close out the day to keep your streak.</div>
