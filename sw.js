@@ -1,4 +1,4 @@
-const CACHE_NAME = 'jee-ascend-v1';
+const CACHE_NAME = 'jee-ascend-v2';
 const APP_SHELL = [
   './',
   './index.html',
