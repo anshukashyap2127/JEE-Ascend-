@@ -998,20 +998,19 @@ function renderDashboard(){
     </div>
   </div>`;
 
-  html += `<div class="mission-card">
-
-  // Inside renderDashboard():
-const hoursLogged = Number(log.hours) || 0;
-const zeroAlertHTML = (hoursLogged <= 0 && progress <= 0 && !closedToday) ? `
-  <div class="zero-progress-alert">
-    <div class="alert-icon">⚠️</div>
-    <div>
-      <strong>0% Progress Logged Today</strong>
-      <span>Log study hours or complete tasks before closing out, or your streak will reset to 0 🔥.</span>
+  const hoursLogged = Number(log.hours) || 0;
+  const zeroAlertHTML = (hoursLogged <= 0 && progress <= 0 && !closedToday) ? `
+    <div class="zero-progress-alert">
+      <div class="alert-icon">⚠️</div>
+      <div>
+        <strong>0% Progress Logged Today</strong>
+        <span>Log study hours or complete tasks before closing out, or your streak will reset to 0 🔥.</span>
+      </div>
     </div>
-  </div>
-` : '';
+  ` : '';
 
+  html += `<div class="mission-card">
+    ${zeroAlertHTML}
     <div class="mission-card-top">
     
       <div>
