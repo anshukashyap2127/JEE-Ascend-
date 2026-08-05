@@ -406,15 +406,15 @@ async function save(){
 
 
 // ---------- CLOUD SYNC (Firebase) ----------
-// >>> PASTE YOUR FIREBASE PROJECT CONFIG HERE. Leave apiKey blank ('') to disable cloud sync entirely. <<<
-const FIREBASE_CONFIG = {
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
   apiKey: "AIzaSyCCdPhja7dhsV70YeWvpMUbziP6pfM6-iQ",
   authDomain: "jee-ascend.firebaseapp.com",
   projectId: "jee-ascend",
   storageBucket: "jee-ascend.firebasestorage.app",
   messagingSenderId: "404497112359",
-  appId: "1:404497112359:web:4a807aaa6d1dd177a6dd02",
-  measurementId: "G-SH49VMJJ4Q"
+  appId: "1:404497112359:web:4c7d501dd6919e63a6dd02",
+  measurementId: "G-WX5PKF7H22"
 };
 let db = null;
 if(FIREBASE_CONFIG.apiKey){
