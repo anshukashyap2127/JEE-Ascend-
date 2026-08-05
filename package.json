@@ -1,0 +1,23 @@
+{
+  "name": "jee-ascend",
+  "version": "1.0.0",
+  "description": "JEE Ascend - Web Operating System for JEE prep",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anshukashyap2127/JEE-Ascend-.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/anshukashyap2127/JEE-Ascend-/issues"
+  },
+  "homepage": "https://github.com/anshukashyap2127/JEE-Ascend-#readme",
+  "dependencies": {
+    "@vercel/speed-insights": "^2.0.0"
+  }
+}
