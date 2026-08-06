@@ -417,9 +417,9 @@ const firebaseConfig = {
   measurementId: "G-WX5PKF7H22"
 };
 let db = null;
-if(FIREBASE_CONFIG.apiKey){
+if(firebaseConfig.apiKey){
   try{
-    firebase.initializeApp(FIREBASE_CONFIG);
+    firebase.initializeApp(firebaseConfig);
     db = firebase.firestore();
   }catch(e){ console.warn('Firebase init failed:', e); }
 }
