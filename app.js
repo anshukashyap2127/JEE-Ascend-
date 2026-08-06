@@ -349,13 +349,12 @@ async function load(){
     const r = await storageGet('jee-ascend-state');
     if(r && r.value) state = JSON.parse(r.value);
   }catch(e){}
+
   seedIfEmpty();
+
   if(!state.examDate){
     const d = new Date(); d.setMonth(d.getMonth()+6);
     state.examDate = localDateStr(d);
-    
-  checkStreakValidity();  // to check the streak wheather it is >0
-  save();
   }
   if(!state.streak) state.streak = {count:0,last:null};
   if(!state.mistakes) state.mistakes = [];
@@ -363,27 +362,19 @@ async function load(){
   if(!state.ui) state.ui = {};
   if(!state.ui.plannerSelectedDate) state.ui.plannerSelectedDate = todayStr();
   if(!state.settings) state.settings = {hoursTarget:2, questionsTarget:20, focusWorkMin:25, focusBreakMin:5};
+
   if(!state.settings.notifications){
-
     state.settings.notifications = {
-
         enabled: true,
-
         dailyReminder: true,
-
         reminderHour: 18,
-
         reminderMinute: 0,
-
         focusReminder: true,
-
         breakReminder: true,
-
         plannerReminder: true
-
     };
+  }
 
-}
   if(state.settings.focusWorkMin===undefined) state.settings.focusWorkMin = 25;
   if(state.settings.focusBreakMin===undefined) state.settings.focusBreakMin = 5;
   if(state.settings.rewardPointsPerHour===undefined) state.settings.rewardPointsPerHour = 4;
@@ -395,14 +386,30 @@ async function load(){
   if(!state.rewards) state.rewards = { points:0, catalog: defaultRewardCatalog(), redemptions: [] };
   if(!state.tests) state.tests = defaultTests();
   if(!state.practice) state.practice = { questions: [] };
-  document.getElementById('examDate').value = state.examDate;
+
+  // Crash-proof input element setter
+  const examInput = document.getElementById('examDate');
+  if(examInput) examInput.value = state.examDate;
+
+  // -------------------------------------------------------------
+  // NEW ADDITIONS ADDED AT THE BOTTOM:
+  // -------------------------------------------------------------
+  
+  // 1. Checks if a day was skipped so the streak resets to 0 automatically
+  if(typeof checkStreakValidity === 'function') checkStreakValidity();
+
+  // 2. Starts the Firebase Real-Time Listener for cross-device 2-way sync
+  if(typeof setupRealtimeSync === 'function') setupRealtimeSync();
+
   save();
 }
+
 async function save(){
   await storageSet('jee-ascend-state', JSON.stringify(state));
-  scheduleCloudSync();
+  if(typeof pushStateToCloud === 'function') pushStateToCloud();
   syncWidgetData();
 }
+
 
 
 // ---------- CLOUD SYNC (Firebase) ----------
@@ -423,34 +430,61 @@ if(firebaseConfig.apiKey){
     db = firebase.firestore();
   }catch(e){ console.warn('Firebase init failed:', e); }
 }
+
 function cloudDocId(email){ return (email||'').trim().toLowerCase(); }
 
-let cloudSyncTimer = null;
-function scheduleCloudSync(){
-  if(!db || !state.profile || !state.profile.email) return;
-  clearTimeout(cloudSyncTimer);
-  cloudSyncTimer = setTimeout(()=>{ pushStateToCloud(); }, 4000);
-}
+let unsubscribeRealtime = null;
+
+// 1. Instant Push to Cloud with Timestamp
 async function pushStateToCloud(){
   if(!db || !state.profile || !state.profile.email) return;
   const id = cloudDocId(state.profile.email);
   if(!id) return;
+
+  state.updatedAt = new Date().toISOString(); // Attach precise timestamp
+
   try{
     await db.collection('users').doc(id).set({
       data: JSON.stringify(state),
-      updatedAt: new Date().toISOString()
+      updatedAt: state.updatedAt
     });
-  }catch(e){ console.warn('Cloud sync failed:', e); }
+  }catch(e){ console.warn('Cloud push failed:', e); }
 }
-async function pullStateFromCloud(email){
-  if(!db) return null;
-  const id = cloudDocId(email);
-  if(!id) return null;
-  try{
-    const doc = await db.collection('users').doc(id).get();
-    if(doc.exists) return JSON.parse(doc.data().data);
-    return null;
-  }catch(e){ console.warn('Cloud restore failed:', e); return null; }
+
+// 2. REAL-TIME LISTENER: Listens for live updates pushed from other devices
+function setupRealtimeSync(){
+  if(!db || !state.profile || !state.profile.email) return;
+  const id = cloudDocId(state.profile.email);
+  if(!id) return;
+
+  // Unsubscribe old listener if any
+  if(unsubscribeRealtime) unsubscribeRealtime();
+
+  // Open live WebSocket listener to Firebase Firestore
+  unsubscribeRealtime = db.collection('users').doc(id).onSnapshot((doc) => {
+    if (doc.exists) {
+      try {
+        const cloudPayload = doc.data();
+        if (cloudPayload && cloudPayload.data) {
+          const cloudData = JSON.parse(cloudPayload.data);
+
+          const localTime = new Date(state.updatedAt || 0).getTime();
+          const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
+
+          // If Cloud progress is NEWER than local state, update live!
+          if (cloudTime > localTime) {
+            state = cloudData;
+            storageSet('jee-ascend-state', JSON.stringify(state));
+            renderAll();
+          }
+        }
+      } catch (e) {
+        console.warn('Realtime parse error:', e);
+      }
+    }
+  }, (error) => {
+    console.warn('Realtime sync error:', error);
+  });
 }
 
 // Check if a day was skipped without logging
@@ -2367,7 +2401,7 @@ async function completeOnboarding(){
   const cls = document.getElementById('obClass').value;
   const exam = document.getElementById('obExam').value;
 
-  // 1. Check if existing Cloud Data exists for this email BEFORE creating a new profile
+  // 1. Check if existing Cloud Data exists for this email
   if(db){
     const cloudData = await pullStateFromCloud(email);
     if(cloudData && cloudData.chapters){
@@ -2377,10 +2411,12 @@ async function completeOnboarding(){
       if(shouldRestore){
         state = cloudData;
         await save();
+        if(typeof setupRealtimeSync === 'function') setupRealtimeSync();
         document.getElementById('onboardingScreen').style.display = 'none';
         document.getElementById('mainApp').style.display = 'block';
         renderAll();
         showBottomNav();
+        localStorage.setItem("onboardingCompleted", "true");
         return;
       }
     }
@@ -2389,15 +2425,17 @@ async function completeOnboarding(){
   // 2. If no cloud data exists, create a fresh profile
   state.profile = { name, email, class: cls, examTarget: exam };
   await save();
-  pushStateToCloud(); // Immediately push to cloud (no delay)
+  if(typeof pushStateToCloud === 'function') pushStateToCloud();
+  if(typeof setupRealtimeSync === 'function') setupRealtimeSync();
   submitToGoogleSheet(state.profile);
-  
+
   document.getElementById('onboardingScreen').style.display = 'none';
   document.getElementById('mainApp').style.display = 'block';
   renderAll();
   showBottomNav();
   localStorage.setItem("onboardingCompleted", "true");
 }
+
 
 (async function init(){
   await load();
