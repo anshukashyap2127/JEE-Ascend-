@@ -424,68 +424,186 @@ const firebaseConfig = {
   measurementId: "G-WX5PKF7H22"
 };
 let db = null;
-if(firebaseConfig.apiKey){
-  try{
-    firebase.initializeApp(firebaseConfig);
-    db = firebase.firestore();
-  }catch(e){ console.warn('Firebase init failed:', e); }
+
+// Detect if running inside Android Capacitor App vs Web Browser
+const isCapacitorApp = typeof window.Capacitor !== 'undefined' && 
+                       typeof window.Capacitor.isNativePlatform === 'function' && 
+                       window.Capacitor.isNativePlatform();
+
+function initFirebase() {
+  if (typeof firebase === 'undefined') {
+    console.warn("Firebase SDK not loaded yet.");
+    return false;
+  }
+  try {
+    if (!firebase.apps || !firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    if (!db && firebase.firestore) {
+      db = firebase.firestore();
+      console.log("Firebase initialized successfully");
+
+      // App vs Web specific persistence logic
+      if (isCapacitorApp) {
+        // Android WebView: Simple persistence without multi-tab locks
+        db.enablePersistence().catch((err) => {
+          console.warn("Capacitor Firestore Persistence Warning:", err.code || err);
+        });
+      } else {
+        // Web Browser: Standard multi-tab persistence
+        db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
+          console.warn("Web Firestore Persistence Warning:", err.code || err);
+        });
+      }
+    }
+    return true;
+  } catch (e) {
+    console.error("Firebase Init Error:", e);
+    return false;
+  }
 }
 
-function cloudDocId(email){ return (email||'').trim().toLowerCase(); }
+initFirebase();
+
+function cloudDocId(email) { 
+  return (email || '').trim().toLowerCase(); 
+}
 
 let unsubscribeRealtime = null;
 
-// 1. Instant Push to Cloud with Timestamp
-async function pushStateToCloud(){
-  if(!db || !state.profile || !state.profile.email) return;
+// 1. Push State to Cloud
+async function pushStateToCloud() {
+  if (!db && !initFirebase()) return;
+  if (!db || !state.profile || !state.profile.email) return;
+
   const id = cloudDocId(state.profile.email);
-  if(!id) return;
+  if (!id) return;
 
-  state.updatedAt = new Date().toISOString(); // Attach precise timestamp
+  const nowEpoch = Date.now();
+  state.updatedAt = new Date(nowEpoch).toISOString();
 
-  try{
+  try {
+    const serverTimestamp = (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
+      ? firebase.firestore.FieldValue.serverTimestamp()
+      : nowEpoch;
+
     await db.collection('users').doc(id).set({
       data: JSON.stringify(state),
-      updatedAt: state.updatedAt
-    });
-  }catch(e){ console.warn('Cloud push failed:', e); }
+      updatedAt: serverTimestamp,
+      lastUpdatedMs: nowEpoch
+    }, { merge: true });
+  } catch (e) { 
+    console.warn('Cloud push failed:', e); 
+  }
 }
 
-// 2. REAL-TIME LISTENER: Listens for live updates pushed from other devices
-function setupRealtimeSync(){
-  if(!db || !state.profile || !state.profile.email) return;
-  const id = cloudDocId(state.profile.email);
-  if(!id) return;
+// 2. Pull State from Cloud
+async function pullStateFromCloud(email) {
+  if (!db && !initFirebase()) return null;
+  if (!db) return null;
 
-  // Unsubscribe old listener if any
-  if(unsubscribeRealtime) unsubscribeRealtime();
+  const id = cloudDocId(email);
+  if (!id) return null;
 
-  // Open live WebSocket listener to Firebase Firestore
-  unsubscribeRealtime = db.collection('users').doc(id).onSnapshot((doc) => {
-    if (doc.exists) {
-      try {
-        const cloudPayload = doc.data();
-        if (cloudPayload && cloudPayload.data) {
-          const cloudData = JSON.parse(cloudPayload.data);
+  try {
+    const doc = await db.collection('users').doc(id).get();
+    if (doc.exists && doc.data().data) {
+      return JSON.parse(doc.data().data);
+    }
+    return null;
+  } catch (e) { 
+    console.warn('Cloud pull failed:', e); 
+    return null; 
+  }
+}
 
-          const localTime = new Date(state.updatedAt || 0).getTime();
-          const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
+// 3. Smart 2-Way Sync
+async function syncWithCloud() {
+  if (!db && !initFirebase()) return;
+  if (!db || !state.profile || !state.profile.email) return;
 
-          // If Cloud progress is NEWER than local state, update live!
-          if (cloudTime > localTime) {
-            state = cloudData;
-            storageSet('jee-ascend-state', JSON.stringify(state));
-            renderAll();
-          }
-        }
-      } catch (e) {
-        console.warn('Realtime parse error:', e);
+  try {
+    const cloudData = await pullStateFromCloud(state.profile.email);
+    if (cloudData && cloudData.chapters) {
+      const localTime = new Date(state.updatedAt || 0).getTime();
+      const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
+
+      if (cloudTime > localTime || !state.updatedAt) {
+        state = cloudData;
+        await storageSet('jee-ascend-state', JSON.stringify(state));
+        renderAll();
       }
     }
-  }, (error) => {
-    console.warn('Realtime sync error:', error);
+  } catch (e) { 
+    console.warn('Smart sync error:', e); 
+  }
+}
+
+// 4. Real-time Listener (Handled specifically for App network toggles)
+function setupRealtimeSync() {
+  if (!db && !initFirebase()) return;
+  if (!db || !state.profile || !state.profile.email) return;
+
+  const id = cloudDocId(state.profile.email);
+  if (!id) return;
+
+  if (unsubscribeRealtime) {
+    unsubscribeRealtime();
+    unsubscribeRealtime = null;
+  }
+
+  unsubscribeRealtime = db.collection('users').doc(id).onSnapshot(
+    { includeMetadataChanges: true },
+    (doc) => {
+      // Prevent local edits from causing UI flickering or keyboard loss in Android app
+      if (doc.metadata && doc.metadata.hasPendingWrites) {
+        return;
+      }
+
+      if (doc.exists) {
+        try {
+          const cloudPayload = doc.data();
+          if (cloudPayload && cloudPayload.data) {
+            const cloudData = JSON.parse(cloudPayload.data);
+
+            const localTime = new Date(state.updatedAt || 0).getTime();
+            const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
+
+            if (cloudTime > localTime) {
+              state = cloudData;
+              storageSet('jee-ascend-state', JSON.stringify(state));
+              renderAll();
+            }
+          }
+        } catch (e) {
+          console.warn('Realtime parse error:', e);
+        }
+      }
+    }, 
+    (error) => {
+      console.warn('Realtime sync error (will auto-recover):', error);
+    }
+  );
+}
+
+// 5. Android Capacitor App Lifecycle Handling (Reconnects network on App Resume)
+if (isCapacitorApp && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+  window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
+    if (isActive) {
+      // Re-enable network connection when student returns to Android app
+      if (db) {
+        db.enableNetwork().then(() => {
+          syncWithCloud();
+          setupRealtimeSync();
+        }).catch(() => {});
+      }
+    } else {
+      // Save state immediately before Android backgrounding
+      pushStateToCloud();
+    }
   });
 }
+
 
 // Check if a day was skipped without logging
 function checkStreakValidity(){
