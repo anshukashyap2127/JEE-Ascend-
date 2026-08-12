@@ -471,6 +471,8 @@ function cloudDocId(email) {
 
 let unsubscribeRealtime = null;
 
+// ---------- CLOUD SYNC (Complete 2-Way Offline & Online Sync) ----------
+
 // 1. Push State to Cloud
 async function pushStateToCloud() {
   if (!db && !initFirebase()) return;
@@ -479,19 +481,18 @@ async function pushStateToCloud() {
   const id = cloudDocId(state.profile.email);
   if (!id) return;
 
-  const nowEpoch = Date.now();
-  state.updatedAt = new Date(nowEpoch).toISOString();
+  if (!state.updatedAt) {
+    state.updatedAt = new Date().toISOString();
+  }
 
   try {
-    const serverTimestamp = (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
-      ? firebase.firestore.FieldValue.serverTimestamp()
-      : nowEpoch;
-
     await db.collection('users').doc(id).set({
       data: JSON.stringify(state),
-      updatedAt: serverTimestamp,
-      lastUpdatedMs: nowEpoch
+      updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
+        ? firebase.firestore.FieldValue.serverTimestamp()
+        : Date.now()
     }, { merge: true });
+    updateSyncBadge('🟢 Synced with Cloud', '#33D6A6');
   } catch (e) { 
     console.warn('Cloud push failed:', e); 
   }
@@ -517,7 +518,7 @@ async function pullStateFromCloud(email) {
   }
 }
 
-// 3. Smart 2-Way Sync
+// 3. Smart 2-Way Sync (UPLOADS OFFLINE EDITS ON RECONNECT)
 async function syncWithCloud() {
   if (!db && !initFirebase()) return;
   if (!db || !state.profile || !state.profile.email) return;
@@ -528,18 +529,29 @@ async function syncWithCloud() {
       const localTime = new Date(state.updatedAt || 0).getTime();
       const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
 
-      if (cloudTime > localTime || !state.updatedAt) {
+      if (cloudTime > localTime) {
+        // Case A: Web has newer data -> Download to Phone
         state = cloudData;
         await storageSet('jee-ascend-state', JSON.stringify(state));
         renderAll();
+        updateSyncBadge('🟢 Downloaded Latest Web Data', '#33D6A6');
+      } else if (localTime > cloudTime) {
+        // Case B: Phone has newer offline edits -> Upload Phone Edits to Cloud!
+        await pushStateToCloud();
+        updateSyncBadge('🟢 Offline Edits Uploaded to Cloud!', '#33D6A6');
+      } else {
+        updateSyncBadge('🟢 Fully Synced', '#33D6A6');
       }
+    } else {
+      // First sync -> push state to cloud
+      await pushStateToCloud();
     }
   } catch (e) { 
     console.warn('Smart sync error:', e); 
   }
 }
 
-// 4. Real-time Listener (Handled specifically for App network toggles)
+// 4. Real-time Listener (Handles Live Updates 2-Way)
 function setupRealtimeSync() {
   if (!db && !initFirebase()) return;
   if (!db || !state.profile || !state.profile.email) return;
@@ -552,45 +564,52 @@ function setupRealtimeSync() {
     unsubscribeRealtime = null;
   }
 
-  unsubscribeRealtime = db.collection('users').doc(id).onSnapshot(
-    { includeMetadataChanges: true },
-    (doc) => {
-      // Prevent local edits from causing UI flickering or keyboard loss in Android app
-      if (doc.metadata && doc.metadata.hasPendingWrites) {
-        return;
-      }
-
-      if (doc.exists) {
-        try {
-          const cloudPayload = doc.data();
-          if (cloudPayload && cloudPayload.data) {
-            const cloudData = JSON.parse(cloudPayload.data);
-
-            const localTime = new Date(state.updatedAt || 0).getTime();
-            const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
-
-            if (cloudTime > localTime) {
-              state = cloudData;
-              storageSet('jee-ascend-state', JSON.stringify(state));
-              renderAll();
-            }
-          }
-        } catch (e) {
-          console.warn('Realtime parse error:', e);
+  try {
+    unsubscribeRealtime = db.collection('users').doc(id).onSnapshot(
+      { includeMetadataChanges: true },
+      (doc) => {
+        // Ignore local pending writes to prevent UI flickering
+        if (doc.metadata && doc.metadata.hasPendingWrites) {
+          return;
         }
+
+        if (doc.exists) {
+          try {
+            const cloudPayload = doc.data();
+            if (cloudPayload && cloudPayload.data) {
+              const cloudData = JSON.parse(cloudPayload.data);
+
+              const localTime = new Date(state.updatedAt || 0).getTime();
+              const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
+
+              if (cloudTime > localTime) {
+                state = cloudData;
+                storageSet('jee-ascend-state', JSON.stringify(state));
+                renderAll();
+                updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
+              } else if (localTime > cloudTime) {
+                // If local phone state is newer, upload it to cloud
+                pushStateToCloud();
+              }
+            }
+          } catch (e) {
+            console.warn('Realtime parse error:', e);
+          }
+        }
+      }, 
+      (error) => {
+        console.warn('Realtime sync error:', error);
       }
-    }, 
-    (error) => {
-      console.warn('Realtime sync error (will auto-recover):', error);
-    }
-  );
+    );
+  } catch (e) {
+    console.warn('Listener error:', e);
+  }
 }
 
-// 5. Android Capacitor App Lifecycle Handling (Reconnects network on App Resume)
+// 5. Capacitor App Lifecycle Handling
 if (isCapacitorApp && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
   window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
     if (isActive) {
-      // Re-enable network connection when student returns to Android app
       if (db) {
         db.enableNetwork().then(() => {
           syncWithCloud();
@@ -598,12 +617,18 @@ if (isCapacitorApp && window.Capacitor.Plugins && window.Capacitor.Plugins.App) 
         }).catch(() => {});
       }
     } else {
-      // Save state immediately before Android backgrounding
       pushStateToCloud();
     }
   });
 }
 
+// 6. Global Save Override (Ensures local timestamp advances on every user interaction)
+async function save(){
+  state.updatedAt = new Date().toISOString();
+  await storageSet('jee-ascend-state', JSON.stringify(state));
+  if (typeof pushStateToCloud === 'function') pushStateToCloud();
+  syncWidgetData();
+}
 
 // Check if a day was skipped without logging
 function checkStreakValidity(){
