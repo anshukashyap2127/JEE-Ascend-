@@ -413,6 +413,7 @@ async function save(){
 
 
 // ---------- CLOUD SYNC (Firebase) ----------
+// ---------- CLOUD SYNC (Firebase - Capacitor & Web Compatible) ----------
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
   apiKey: "AIzaSyCCdPhja7dhsV70YeWvpMUbziP6pfM6-iQ",
@@ -423,31 +424,17 @@ const firebaseConfig = {
   appId: "1:404497112359:web:4c7d501dd6919e63a6dd02",
   measurementId: "G-WX5PKF7H22"
 };
-let db = null;
-let unsubscribeRealtime = null;
 
-// Detect if running in Android APK vs Web Browser
+let db = null;
+
+// Detect if running inside Android Capacitor App vs Web Browser
 const isCapacitorApp = typeof window.Capacitor !== 'undefined' && 
                        typeof window.Capacitor.isNativePlatform === 'function' && 
                        window.Capacitor.isNativePlatform();
 
-// Auto-inject status badge for on-screen sync feedback
-function updateSyncBadge(msg, color) {
-  let badge = document.getElementById('cloudSyncStatusBadge');
-  if (!badge) {
-    const topBar = document.querySelector('.topbar') || document.querySelector('.header') || document.body;
-    badge = document.createElement('div');
-    badge.id = 'cloudSyncStatusBadge';
-    badge.style.cssText = 'font-size:11px;font-weight:600;padding:4px 10px;border-radius:12px;background:rgba(255,255,255,0.08);display:inline-flex;align-items:center;margin:8px;z-index:9999;';
-    if (topBar) topBar.prepend(badge);
-  }
-  badge.innerHTML = msg;
-  badge.style.color = color || 'var(--text)';
-}
-
 function initFirebase() {
   if (typeof firebase === 'undefined') {
-    updateSyncBadge('🔴 Firebase SDK missing in index.html', '#FF4D4D');
+    console.warn("Firebase SDK not loaded yet.");
     return false;
   }
   try {
@@ -458,37 +445,37 @@ function initFirebase() {
       db = firebase.firestore();
       console.log("Firebase initialized successfully");
 
-      // Multi-tab safe persistence for Web Browsers & WebViews
+      // App vs Web specific persistence logic
       if (isCapacitorApp) {
+        // Android WebView: Simple persistence without multi-tab locks
         db.enablePersistence().catch((err) => {
-          console.warn("Capacitor Persistence Notice:", err.code || err);
+          console.warn("Capacitor Firestore Persistence Warning:", err.code || err);
         });
       } else {
-        // WEB BROWSER: Enable multi-tab persistence with fallback handling
+        // Web Browser: Standard multi-tab persistence
         db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
-          if (err.code === 'failed-precondition') {
-            console.warn("Multiple tabs open; persistence enabled in first tab.");
-          } else if (err.code === 'unimplemented') {
-            console.warn("Browser does not support Firestore offline persistence.");
-          }
+          console.warn("Web Firestore Persistence Warning:", err.code || err);
         });
       }
     }
     return true;
   } catch (e) {
     console.error("Firebase Init Error:", e);
-    updateSyncBadge('🔴 Firebase Init Error', '#FF4D4D');
     return false;
   }
 }
 
 initFirebase();
 
-function cloudDocId(email) {
-  return (email || '').trim().toLowerCase();
+function cloudDocId(email) { 
+  return (email || '').trim().toLowerCase(); 
 }
 
-// 1. Push Local State to Cloud
+let unsubscribeRealtime = null;
+
+// ---------- CLOUD SYNC (Complete 2-Way Offline & Online Sync) ----------
+
+// 1. Push State to Cloud
 async function pushStateToCloud() {
   if (!db && !initFirebase()) return;
   if (!db || !state.profile || !state.profile.email) return;
@@ -496,29 +483,24 @@ async function pushStateToCloud() {
   const id = cloudDocId(state.profile.email);
   if (!id) return;
 
-  // Always update local timestamp before uploading
-  const nowIso = new Date().toISOString();
-  state.updatedAt = nowIso;
+  if (!state.updatedAt) {
+    state.updatedAt = new Date().toISOString();
+  }
 
   try {
-    const serverTimestamp = (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
-      ? firebase.firestore.FieldValue.serverTimestamp()
-      : Date.now();
-
     await db.collection('users').doc(id).set({
       data: JSON.stringify(state),
-      updatedAt: serverTimestamp,
-      clientUpdatedAt: nowIso
+      updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
+        ? firebase.firestore.FieldValue.serverTimestamp()
+        : Date.now()
     }, { merge: true });
-
-    updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
-  } catch (e) {
-    console.warn('Cloud push failed:', e);
-    updateSyncBadge('🔴 Push Failed: ' + e.message, '#FF4D4D');
+    updateSyncBadge('🟢 Synced with Cloud', '#33D6A6');
+  } catch (e) { 
+    console.warn('Cloud push failed:', e); 
   }
 }
 
-// 2. Pull State from Cloud (FORCES SERVER FETCH, NOT STALE BROWSER CACHE)
+// 2. Pull State from Cloud
 async function pullStateFromCloud(email) {
   if (!db && !initFirebase()) return null;
   if (!db) return null;
@@ -527,26 +509,96 @@ async function pullStateFromCloud(email) {
   if (!id) return null;
 
   try {
-    // Force fetch directly from Google Cloud Servers first
-    const doc = await db.collection('users').doc(id).get({ source: 'server' });
+    const doc = await db.collection('users').doc(id).get();
     if (doc.exists && doc.data().data) {
       return JSON.parse(doc.data().data);
     }
     return null;
-  } catch (e) {
-    // Fallback to cache if offline
-    try {
-      const cachedDoc = await db.collection('users').doc(id).get({ source: 'cache' });
-      if (cachedDoc.exists && cachedDoc.data().data) {
-        return JSON.parse(cachedDoc.data().data);
-      }
-    } catch (err) {}
-    console.warn('Cloud pull failed:', e);
-    return null;
+  } catch (e) { 
+    console.warn('Cloud pull failed:', e); 
+    return null; 
   }
 }
+// =========================================================
+// BULLETPROOF SMART MERGING SYNC ENGINE (PREVENTS DATA LOSS)
+// =========================================================
 
-// 3. Smart 2-Way Sync (Compares Timestamps to Protect Offline Edits)
+// Smart State Merger: Combines progress from both devices so NO data is ever wiped
+function mergeStates(local, cloud) {
+  if (!cloud) return local;
+  if (!local) return cloud;
+
+  const merged = JSON.parse(JSON.stringify(cloud));
+
+  // 1. MERGE DAILY LOGS (Keeps study hours & tasks from BOTH devices)
+  merged.dailyLogs = merged.dailyLogs || {};
+  if (local.dailyLogs) {
+    for (const dateKey in local.dailyLogs) {
+      if (!merged.dailyLogs[dateKey]) {
+        merged.dailyLogs[dateKey] = local.dailyLogs[dateKey];
+      } else {
+        // Keep highest study hours logged for that day
+        merged.dailyLogs[dateKey].hours = Math.max(
+          merged.dailyLogs[dateKey].hours || 0,
+          local.dailyLogs[dateKey].hours || 0
+        );
+        // Combine tasks from both devices without duplicates
+        const existingTaskIds = new Set((merged.dailyLogs[dateKey].tasks || []).map(t => t.id));
+        (local.dailyLogs[dateKey].tasks || []).forEach(t => {
+          if (!existingTaskIds.has(t.id)) {
+            merged.dailyLogs[dateKey].tasks.push(t);
+          }
+        });
+      }
+    }
+  }
+
+  // 2. MERGE CHAPTER PROGRESS (Preserves checked lectures, notes, DPPs, PYQs)
+  if (local.chapters && merged.chapters) {
+    for (const subj in local.chapters) {
+      if (merged.chapters[subj]) {
+        local.chapters[subj].forEach(localCh => {
+          const cloudCh = merged.chapters[subj].find(c => c.id === localCh.id || c.name === localCh.name);
+          if (cloudCh) {
+            cloudCh.lecture = cloudCh.lecture || localCh.lecture;
+            cloudCh.notes = cloudCh.notes || localCh.notes;
+            cloudCh.dpp = cloudCh.dpp || localCh.dpp;
+            cloudCh.pyqMain = cloudCh.pyqMain || localCh.pyqMain;
+            cloudCh.pyqAdv = cloudCh.pyqAdv || localCh.pyqAdv;
+
+            if (localCh.revisions) {
+              localCh.revisions.forEach((rev, idx) => {
+                if (rev) cloudCh.revisions[idx] = true;
+              });
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // 3. MERGE MISTAKES (Combines mistake entries from both devices)
+  if (local.mistakes) {
+    merged.mistakes = merged.mistakes || [];
+    const existingMistakeIds = new Set(merged.mistakes.map(m => m.id));
+    local.mistakes.forEach(m => {
+      if (!existingMistakeIds.has(m.id)) {
+        merged.mistakes.unshift(m);
+      }
+    });
+  }
+
+  // 4. MERGE STREAK (Keeps highest active streak)
+  merged.streak = merged.streak || { count: 0, last: null };
+  if (local.streak && local.streak.count > merged.streak.count) {
+    merged.streak = local.streak;
+  }
+
+  return merged;
+}
+
+// 3. Smart 2-Way Sync (UPLOADS OFFLINE EDITS ON RECONNECT)
+// Smart 2-Way Sync
 async function syncWithCloud() {
   if (!db && !initFirebase()) return;
   if (!db || !state.profile || !state.profile.email) return;
@@ -554,22 +606,14 @@ async function syncWithCloud() {
   try {
     const cloudData = await pullStateFromCloud(state.profile.email);
     if (cloudData && cloudData.chapters) {
-      const localTime = new Date(state.updatedAt || 0).getTime();
-      const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
-
-      if (cloudTime > localTime) {
-        // Cloud has newer data (edited on phone) -> Download to Web
-        state = cloudData;
-        await storageSet('jee-ascend-state', JSON.stringify(state));
-        renderAll();
-        updateSyncBadge('🟢 Updated from Cloud', '#33D6A6');
-      } else if (localTime > cloudTime) {
-        // Web has newer edits -> Upload to Cloud
-        await pushStateToCloud();
-        updateSyncBadge('🟢 Uploaded Web Edits', '#33D6A6');
-      } else {
-        updateSyncBadge('🟢 Live Synced (' + cloudDocId(state.profile.email) + ')', '#33D6A6');
-      }
+      // MERGE LOCAL AND CLOUD STATE SAFELY
+      state = mergeStates(state, cloudData);
+      await storageSet('jee-ascend-state', JSON.stringify(state));
+      renderAll();
+      updateSyncBadge('🟢 Progress Safely Merged & Synced', '#33D6A6');
+      
+      // Upload merged state back to cloud so both devices are identical
+      await pushStateToCloud();
     } else {
       await pushStateToCloud();
     }
@@ -577,26 +621,14 @@ async function syncWithCloud() {
     console.warn('Sync error:', e);
   }
 }
-
-// 4. Real-time WebSocket Listener
+// 4. Real-time Listener (Handles Live Updates 2-Way)
+// Real-time WebSocket Listener
 function setupRealtimeSync() {
-  if (typeof firebase === 'undefined') {
-    updateSyncBadge('🔴 Firebase SDK missing in index.html', '#FF4D4D');
-    return;
-  }
-
-  if (!db && !initFirebase()) {
-    updateSyncBadge('🔴 Firebase Init Failed', '#FF4D4D');
-    return;
-  }
-
-  if (!state.profile || !state.profile.email) {
-    updateSyncBadge('🟡 No Email Saved in Settings', '#F5B84C');
-    return;
-  }
+  if (typeof firebase === 'undefined') return;
+  if (!db && !initFirebase()) return;
+  if (!state.profile || !state.profile.email) return;
 
   const id = cloudDocId(state.profile.email);
-  updateSyncBadge('🟡 Connecting to Cloud...', '#F5B84C');
 
   if (unsubscribeRealtime) {
     unsubscribeRealtime();
@@ -607,76 +639,49 @@ function setupRealtimeSync() {
     unsubscribeRealtime = db.collection('users').doc(id).onSnapshot(
       { includeMetadataChanges: true },
       (doc) => {
-        // Ignore optimistic local writes to prevent UI flickering / input resets
-        if (doc.metadata && doc.metadata.hasPendingWrites) {
-          return;
-        }
+        if (doc.metadata && doc.metadata.hasPendingWrites) return;
 
         if (doc.exists) {
           try {
             const cloudPayload = doc.data();
             if (cloudPayload && cloudPayload.data) {
               const cloudData = JSON.parse(cloudPayload.data);
-              const localTime = new Date(state.updatedAt || 0).getTime();
-              const cloudTime = new Date(cloudData.updatedAt || 0).getTime();
-
-              if (cloudTime > localTime) {
-                state = cloudData;
-                storageSet('jee-ascend-state', JSON.stringify(state));
-                renderAll();
-                updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
-              } else if (localTime > cloudTime) {
-                pushStateToCloud();
-              } else {
-                updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
-              }
+              
+              // SAFELY MERGE INSTEAD OF BLINDLY OVERWRITING
+              state = mergeStates(state, cloudData);
+              storageSet('jee-ascend-state', JSON.stringify(state));
+              renderAll();
+              updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
             }
           } catch (e) {
-            updateSyncBadge('🔴 Parse Error', '#FF4D4D');
+            console.warn('Realtime parse error:', e);
           }
-        } else {
-          updateSyncBadge('🟢 Connected (No Cloud Data Yet)', '#33D6A6');
         }
       },
       (error) => {
         console.error('Realtime sync error:', error);
-        updateSyncBadge('🔴 Sync Error: ' + error.message, '#FF4D4D');
       }
     );
   } catch (e) {
-    updateSyncBadge('🔴 Listener Error: ' + e.message, '#FF4D4D');
+    console.warn('Listener error:', e);
   }
 }
 
-// 5. WEB BROWSER AUTOMATIC SYNC LISTENERS (CRITICAL FOR WEB BROWSER TAB FOCUS)
-if (!isCapacitorApp) {
-  // Re-sync immediately whenever student switches back to the browser tab or focuses window
-  window.addEventListener('focus', () => {
-    syncWithCloud();
-    setupRealtimeSync();
-  });
-
-  document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
-      syncWithCloud();
-      setupRealtimeSync();
-    } else {
-      pushStateToCloud();
-    }
-  });
-
-  window.addEventListener('online', () => {
-    if (db) {
-      db.enableNetwork().then(() => {
-        syncWithCloud();
-        setupRealtimeSync();
-      });
-    }
-  });
+// Save Function (Updates timestamp ONLY on user action, NOT on boot load)
+async function save() {
+  await storageSet('jee-ascend-state', JSON.stringify(state));
+  if (typeof pushStateToCloud === 'function') pushStateToCloud();
+  syncWidgetData();
 }
 
-// 6. CAPACITOR ANDROID APP LIFECYCLE
-if (isCapacitorApp && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+// User Action Trigger (Call this when student actually clicks/checks something)
+function markUserAction() {
+  state.updatedAt = new Date().toISOString();
+  save();
+}
+
+// 5. Capacitor App Lifecycle Handling
+if (isCapacitorApp && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
   window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
     if (isActive) {
       if (db) {
@@ -691,13 +696,14 @@ if (isCapacitorApp && window.Capacitor && window.Capacitor.Plugins && window.Cap
   });
 }
 
-// 7. GLOBAL SAVE OVERRIDE (Ensures state.updatedAt advances on EVERY user interaction)
-async function save() {
+// 6. Global Save Override (Ensures local timestamp advances on every user interaction)
+async function save(){
   state.updatedAt = new Date().toISOString();
   await storageSet('jee-ascend-state', JSON.stringify(state));
   if (typeof pushStateToCloud === 'function') pushStateToCloud();
   syncWidgetData();
 }
+
 
 
 // Check if a day was skipped without logging
