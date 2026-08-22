@@ -435,16 +435,11 @@ const isCapacitorApp = typeof window.Capacitor !== 'undefined' &&
 
 // On-screen sync status badge
 function updateSyncBadge(msg, color) {
-  let badge = document.getElementById('cloudSyncStatusBadge');
-  if (!badge) {
-    const topBar = document.querySelector('.topbar') || document.querySelector('.header') || document.body;
-    badge = document.createElement('div');
-    badge.id = 'cloudSyncStatusBadge';
-    badge.style.cssText = 'font-size:11px;font-weight:600;padding:4px 10px;border-radius:12px;background:rgba(255,255,255,0.08);display:inline-flex;align-items:center;margin:8px;z-index:9999;';
-    if (topBar) topBar.prepend(badge);
+  // Remove badge element if it exists in the DOM
+  const existing = document.getElementById('cloudSyncStatusBadge');
+  if (existing) {
+    existing.remove();
   }
-  badge.innerHTML = msg;
-  badge.style.color = color || 'var(--text)';
 }
 
 function initFirebase() {
