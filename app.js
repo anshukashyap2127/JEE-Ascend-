@@ -426,15 +426,30 @@ const firebaseConfig = {
 };
 
 let db = null;
+let unsubscribeRealtime = null;
+let isSyncingFromCloud = false; // Flag to prevent infinite re-push loops
 
-// Detect if running inside Android Capacitor App vs Web Browser
 const isCapacitorApp = typeof window.Capacitor !== 'undefined' && 
                        typeof window.Capacitor.isNativePlatform === 'function' && 
                        window.Capacitor.isNativePlatform();
 
+// On-screen sync status badge
+function updateSyncBadge(msg, color) {
+  let badge = document.getElementById('cloudSyncStatusBadge');
+  if (!badge) {
+    const topBar = document.querySelector('.topbar') || document.querySelector('.header') || document.body;
+    badge = document.createElement('div');
+    badge.id = 'cloudSyncStatusBadge';
+    badge.style.cssText = 'font-size:11px;font-weight:600;padding:4px 10px;border-radius:12px;background:rgba(255,255,255,0.08);display:inline-flex;align-items:center;margin:8px;z-index:9999;';
+    if (topBar) topBar.prepend(badge);
+  }
+  badge.innerHTML = msg;
+  badge.style.color = color || 'var(--text)';
+}
+
 function initFirebase() {
   if (typeof firebase === 'undefined') {
-    console.warn("Firebase SDK not loaded yet.");
+    updateSyncBadge('🔴 Firebase SDK missing in index.html', '#FF4D4D');
     return false;
   }
   try {
@@ -443,130 +458,87 @@ function initFirebase() {
     }
     if (!db && firebase.firestore) {
       db = firebase.firestore();
-      console.log("Firebase initialized successfully");
-
-      // App vs Web specific persistence logic
+      
       if (isCapacitorApp) {
-        // Android WebView: Simple persistence without multi-tab locks
-        db.enablePersistence().catch((err) => {
-          console.warn("Capacitor Firestore Persistence Warning:", err.code || err);
-        });
+        db.enablePersistence().catch(() => {});
       } else {
-        // Web Browser: Standard multi-tab persistence
         db.enablePersistence({ synchronizeTabs: true }).catch((err) => {
-          console.warn("Web Firestore Persistence Warning:", err.code || err);
+          if (err.code === 'failed-precondition') {
+            console.warn("Multiple tabs open; persistence in primary tab.");
+          }
         });
       }
     }
     return true;
   } catch (e) {
     console.error("Firebase Init Error:", e);
+    updateSyncBadge('🔴 Firebase Init Error', '#FF4D4D');
     return false;
   }
 }
 
 initFirebase();
 
-function cloudDocId(email) { 
-  return (email || '').trim().toLowerCase(); 
+function cloudDocId(email) {
+  return (email || '').trim().toLowerCase();
 }
 
-let unsubscribeRealtime = null;
-
-// ---------- CLOUD SYNC (Complete 2-Way Offline & Online Sync) ----------
-
-// 1. Push State to Cloud
-async function pushStateToCloud() {
-  if (!db && !initFirebase()) return;
-  if (!db || !state.profile || !state.profile.email) return;
-
-  const id = cloudDocId(state.profile.email);
-  if (!id) return;
-
-  if (!state.updatedAt) {
-    state.updatedAt = new Date().toISOString();
-  }
-
-  try {
-    await db.collection('users').doc(id).set({
-      data: JSON.stringify(state),
-      updatedAt: (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
-        ? firebase.firestore.FieldValue.serverTimestamp()
-        : Date.now()
-    }, { merge: true });
-    updateSyncBadge('🟢 Synced with Cloud', '#33D6A6');
-  } catch (e) { 
-    console.warn('Cloud push failed:', e); 
-  }
-}
-
-// 2. Pull State from Cloud
-async function pullStateFromCloud(email) {
-  if (!db && !initFirebase()) return null;
-  if (!db) return null;
-
-  const id = cloudDocId(email);
-  if (!id) return null;
-
-  try {
-    const doc = await db.collection('users').doc(id).get();
-    if (doc.exists && doc.data().data) {
-      return JSON.parse(doc.data().data);
-    }
-    return null;
-  } catch (e) { 
-    console.warn('Cloud pull failed:', e); 
-    return null; 
-  }
-}
-// =========================================================
-// BULLETPROOF SMART MERGING SYNC ENGINE (PREVENTS DATA LOSS)
-// =========================================================
-
-// Smart State Merger: Combines progress from both devices so NO data is ever wiped
+// BULLETPROOF STATE MERGER (No crashes, preserves all data)
 function mergeStates(local, cloud) {
-  if (!cloud) return local;
-  if (!local) return cloud;
+  if (!cloud || typeof cloud !== 'object') return local || state;
+  if (!local || typeof local !== 'object') return cloud;
 
-  const merged = JSON.parse(JSON.stringify(cloud));
+  try {
+    const merged = JSON.parse(JSON.stringify(cloud));
 
-  // 1. MERGE DAILY LOGS (Keeps study hours & tasks from BOTH devices)
-  merged.dailyLogs = merged.dailyLogs || {};
-  if (local.dailyLogs) {
-    for (const dateKey in local.dailyLogs) {
-      if (!merged.dailyLogs[dateKey]) {
-        merged.dailyLogs[dateKey] = local.dailyLogs[dateKey];
-      } else {
-        // Keep highest study hours logged for that day
-        merged.dailyLogs[dateKey].hours = Math.max(
-          merged.dailyLogs[dateKey].hours || 0,
-          local.dailyLogs[dateKey].hours || 0
-        );
-        // Combine tasks from both devices without duplicates
-        const existingTaskIds = new Set((merged.dailyLogs[dateKey].tasks || []).map(t => t.id));
-        (local.dailyLogs[dateKey].tasks || []).forEach(t => {
-          if (!existingTaskIds.has(t.id)) {
-            merged.dailyLogs[dateKey].tasks.push(t);
-          }
-        });
+    // 1. Preserve Profile & Exam Date
+    merged.profile = merged.profile || local.profile;
+    merged.examDate = merged.examDate || local.examDate;
+
+    // 2. Merge Daily Logs (Keep logs & highest hours from both devices)
+    merged.dailyLogs = merged.dailyLogs || {};
+    if (local.dailyLogs) {
+      for (const dateKey in local.dailyLogs) {
+        const localLog = local.dailyLogs[dateKey];
+        if (!localLog) continue;
+
+        if (!merged.dailyLogs[dateKey]) {
+          merged.dailyLogs[dateKey] = localLog;
+        } else {
+          const cloudLog = merged.dailyLogs[dateKey];
+          cloudLog.hours = Math.max(Number(cloudLog.hours) || 0, Number(localLog.hours) || 0);
+          cloudLog.questions = Math.max(Number(cloudLog.questions) || 0, Number(localLog.questions) || 0);
+          cloudLog.completed = Boolean(cloudLog.completed || localLog.completed);
+
+          cloudLog.tasks = Array.isArray(cloudLog.tasks) ? cloudLog.tasks : [];
+          const taskIds = new Set(cloudLog.tasks.map(t => t.id));
+          (localLog.tasks || []).forEach(t => {
+            if (t && t.id && !taskIds.has(t.id)) {
+              cloudLog.tasks.push(t);
+            }
+          });
+        }
       }
     }
-  }
 
-  // 2. MERGE CHAPTER PROGRESS (Preserves checked lectures, notes, DPPs, PYQs)
-  if (local.chapters && merged.chapters) {
-    for (const subj in local.chapters) {
-      if (merged.chapters[subj]) {
-        local.chapters[subj].forEach(localCh => {
-          const cloudCh = merged.chapters[subj].find(c => c.id === localCh.id || c.name === localCh.name);
+    // 3. Merge Chapter Completions
+    if (local.chapters && merged.chapters) {
+      for (const subj in SYLLABUS) {
+        const localList = Array.isArray(local.chapters[subj]) ? local.chapters[subj] : [];
+        const cloudList = Array.isArray(merged.chapters[subj]) ? merged.chapters[subj] : [];
+
+        localList.forEach(localCh => {
+          if (!localCh) return;
+          const cloudCh = cloudList.find(c => c && (c.id === localCh.id || c.name === localCh.name));
           if (cloudCh) {
-            cloudCh.lecture = cloudCh.lecture || localCh.lecture;
-            cloudCh.notes = cloudCh.notes || localCh.notes;
-            cloudCh.dpp = cloudCh.dpp || localCh.dpp;
-            cloudCh.pyqMain = cloudCh.pyqMain || localCh.pyqMain;
-            cloudCh.pyqAdv = cloudCh.pyqAdv || localCh.pyqAdv;
+            cloudCh.lecture = Boolean(cloudCh.lecture || localCh.lecture);
+            cloudCh.notes = Boolean(cloudCh.notes || localCh.notes);
+            cloudCh.dpp = Boolean(cloudCh.dpp || localCh.dpp);
+            cloudCh.pyqMain = Boolean(cloudCh.pyqMain || localCh.pyqMain);
+            cloudCh.pyqAdv = Boolean(cloudCh.pyqAdv || localCh.pyqAdv);
 
-            if (localCh.revisions) {
+            if (Array.isArray(localCh.revisions)) {
+              cloudCh.revisions = Array.isArray(cloudCh.revisions) ? cloudCh.revisions : [false,false,false,false,false,false,false];
               localCh.revisions.forEach((rev, idx) => {
                 if (rev) cloudCh.revisions[idx] = true;
               });
@@ -575,30 +547,89 @@ function mergeStates(local, cloud) {
         });
       }
     }
-  }
 
-  // 3. MERGE MISTAKES (Combines mistake entries from both devices)
-  if (local.mistakes) {
-    merged.mistakes = merged.mistakes || [];
-    const existingMistakeIds = new Set(merged.mistakes.map(m => m.id));
-    local.mistakes.forEach(m => {
-      if (!existingMistakeIds.has(m.id)) {
-        merged.mistakes.unshift(m);
-      }
-    });
-  }
+    // 4. Merge Mistakes
+    if (Array.isArray(local.mistakes)) {
+      merged.mistakes = Array.isArray(merged.mistakes) ? merged.mistakes : [];
+      const mIds = new Set(merged.mistakes.map(m => m.id));
+      local.mistakes.forEach(m => {
+        if (m && m.id && !mIds.has(m.id)) {
+          merged.mistakes.unshift(m);
+        }
+      });
+    }
 
-  // 4. MERGE STREAK (Keeps highest active streak)
-  merged.streak = merged.streak || { count: 0, last: null };
-  if (local.streak && local.streak.count > merged.streak.count) {
-    merged.streak = local.streak;
-  }
+    // 5. Merge Streak
+    merged.streak = merged.streak || { count: 0, last: null };
+    if (local.streak && (Number(local.streak.count) || 0) > (Number(merged.streak.count) || 0)) {
+      merged.streak = local.streak;
+    }
 
-  return merged;
+    // Preserve latest timestamp
+    const localTime = new Date(local.updatedAt || 0).getTime();
+    const cloudTime = new Date(cloud.updatedAt || 0).getTime();
+    merged.updatedAt = new Date(Math.max(localTime, cloudTime)).toISOString();
+
+    return merged;
+  } catch (err) {
+    console.error("MergeStates error fallback:", err);
+    return cloud || local;
+  }
 }
 
-// 3. Smart 2-Way Sync (UPLOADS OFFLINE EDITS ON RECONNECT)
-// Smart 2-Way Sync
+// 1. Push Local State to Cloud
+async function pushStateToCloud() {
+  if (!db && !initFirebase()) return;
+  if (!db || !state.profile || !state.profile.email) return;
+
+  const id = cloudDocId(state.profile.email);
+  if (!id) return;
+
+  try {
+    const serverTimestamp = (typeof firebase !== 'undefined' && firebase.firestore && firebase.firestore.FieldValue)
+      ? firebase.firestore.FieldValue.serverTimestamp()
+      : Date.now();
+
+    await db.collection('users').doc(id).set({
+      data: JSON.stringify(state),
+      updatedAt: serverTimestamp,
+      clientUpdatedAt: state.updatedAt || new Date().toISOString()
+    }, { merge: true });
+
+    updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
+  } catch (e) {
+    console.warn('Cloud push failed:', e);
+    updateSyncBadge('🔴 Sync Error: ' + e.message, '#FF4D4D');
+  }
+}
+
+// 2. Pull State from Cloud (Server-First)
+async function pullStateFromCloud(email) {
+  if (!db && !initFirebase()) return null;
+  if (!db) return null;
+
+  const id = cloudDocId(email);
+  if (!id) return null;
+
+  try {
+    const doc = await db.collection('users').doc(id).get({ source: 'server' });
+    if (doc.exists && doc.data().data) {
+      return JSON.parse(doc.data().data);
+    }
+    return null;
+  } catch (e) {
+    try {
+      const cachedDoc = await db.collection('users').doc(id).get({ source: 'cache' });
+      if (cachedDoc.exists && cachedDoc.data().data) {
+        return JSON.parse(cachedDoc.data().data);
+      }
+    } catch (err) {}
+    console.warn('Cloud pull failed:', e);
+    return null;
+  }
+}
+
+// 3. Smart 2-Way Sync
 async function syncWithCloud() {
   if (!db && !initFirebase()) return;
   if (!db || !state.profile || !state.profile.email) return;
@@ -606,29 +637,42 @@ async function syncWithCloud() {
   try {
     const cloudData = await pullStateFromCloud(state.profile.email);
     if (cloudData && cloudData.chapters) {
-      // MERGE LOCAL AND CLOUD STATE SAFELY
+      isSyncingFromCloud = true;
       state = mergeStates(state, cloudData);
       await storageSet('jee-ascend-state', JSON.stringify(state));
       renderAll();
-      updateSyncBadge('🟢 Progress Safely Merged & Synced', '#33D6A6');
-      
-      // Upload merged state back to cloud so both devices are identical
+      isSyncingFromCloud = false;
+
+      updateSyncBadge('🟢 Progress Safely Merged', '#33D6A6');
       await pushStateToCloud();
     } else {
       await pushStateToCloud();
     }
   } catch (e) {
+    isSyncingFromCloud = false;
     console.warn('Sync error:', e);
   }
 }
-// 4. Real-time Listener (Handles Live Updates 2-Way)
-// Real-time WebSocket Listener
+
+// 4. Real-time WebSocket Listener
 function setupRealtimeSync() {
-  if (typeof firebase === 'undefined') return;
-  if (!db && !initFirebase()) return;
-  if (!state.profile || !state.profile.email) return;
+  if (typeof firebase === 'undefined') {
+    updateSyncBadge('🔴 Firebase SDK missing in index.html', '#FF4D4D');
+    return;
+  }
+
+  if (!db && !initFirebase()) {
+    updateSyncBadge('🔴 Firebase Init Failed', '#FF4D4D');
+    return;
+  }
+
+  if (!state.profile || !state.profile.email) {
+    updateSyncBadge('🟡 No Email Saved in Settings', '#F5B84C');
+    return;
+  }
 
   const id = cloudDocId(state.profile.email);
+  updateSyncBadge('🟡 Connecting to Cloud...', '#F5B84C');
 
   if (unsubscribeRealtime) {
     unsubscribeRealtime();
@@ -639,49 +683,73 @@ function setupRealtimeSync() {
     unsubscribeRealtime = db.collection('users').doc(id).onSnapshot(
       { includeMetadataChanges: true },
       (doc) => {
-        if (doc.metadata && doc.metadata.hasPendingWrites) return;
+        // Ignore optimistic local write echoes
+        if (doc.metadata && doc.metadata.hasPendingWrites) {
+          return;
+        }
 
         if (doc.exists) {
           try {
             const cloudPayload = doc.data();
             if (cloudPayload && cloudPayload.data) {
               const cloudData = JSON.parse(cloudPayload.data);
-              
-              // SAFELY MERGE INSTEAD OF BLINDLY OVERWRITING
+
+              isSyncingFromCloud = true;
               state = mergeStates(state, cloudData);
               storageSet('jee-ascend-state', JSON.stringify(state));
               renderAll();
+              isSyncingFromCloud = false;
+
               updateSyncBadge('🟢 Live Synced (' + id + ')', '#33D6A6');
             }
           } catch (e) {
-            console.warn('Realtime parse error:', e);
+            isSyncingFromCloud = false;
+            console.error('Realtime parse error:', e);
+            updateSyncBadge('🔴 Sync Parse Error', '#FF4D4D');
           }
+        } else {
+          updateSyncBadge('🟢 Connected (New User Account)', '#33D6A6');
         }
       },
       (error) => {
         console.error('Realtime sync error:', error);
+        updateSyncBadge('🔴 Sync Error: ' + error.message, '#FF4D4D');
       }
     );
   } catch (e) {
-    console.warn('Listener error:', e);
+    console.error('Listener error:', e);
+    updateSyncBadge('🔴 Listener Error: ' + e.message, '#FF4D4D');
   }
 }
 
-// Save Function (Updates timestamp ONLY on user action, NOT on boot load)
-async function save() {
-  await storageSet('jee-ascend-state', JSON.stringify(state));
-  if (typeof pushStateToCloud === 'function') pushStateToCloud();
-  syncWidgetData();
+// 5. WEB BROWSER AUTOMATIC SYNC LISTENERS
+if (!isCapacitorApp) {
+  window.addEventListener('focus', () => {
+    syncWithCloud();
+    setupRealtimeSync();
+  });
+
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) {
+      syncWithCloud();
+      setupRealtimeSync();
+    } else {
+      pushStateToCloud();
+    }
+  });
+
+  window.addEventListener('online', () => {
+    if (db) {
+      db.enableNetwork().then(() => {
+        syncWithCloud();
+        setupRealtimeSync();
+      });
+    }
+  });
 }
 
-// User Action Trigger (Call this when student actually clicks/checks something)
-function markUserAction() {
-  state.updatedAt = new Date().toISOString();
-  save();
-}
-
-// 5. Capacitor App Lifecycle Handling
-if (isCapacitorApp && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+// 6. CAPACITOR ANDROID APP LIFECYCLE
+if (isCapacitorApp && window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
   window.Capacitor.Plugins.App.addListener('appStateChange', ({ isActive }) => {
     if (isActive) {
       if (db) {
@@ -696,15 +764,17 @@ if (isCapacitorApp && window.Capacitor.Plugins && window.Capacitor.Plugins.App) 
   });
 }
 
-// 6. Global Save Override (Ensures local timestamp advances on every user interaction)
-async function save(){
-  state.updatedAt = new Date().toISOString();
+// 7. GLOBAL SAVE OVERRIDE (Updates timestamp on EVERY user action)
+async function save() {
+  if (!isSyncingFromCloud) {
+    state.updatedAt = new Date().toISOString();
+  }
   await storageSet('jee-ascend-state', JSON.stringify(state));
-  if (typeof pushStateToCloud === 'function') pushStateToCloud();
+  if (!isSyncingFromCloud && typeof pushStateToCloud === 'function') {
+    pushStateToCloud();
+  }
   syncWidgetData();
 }
-
-
 
 // Check if a day was skipped without logging
 function checkStreakValidity(){
